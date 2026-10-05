@@ -96,5 +96,9 @@ How to reach 7 or more:
 6. Build 3 notebooks (baseline → improved → final), executed end-to-end in `./dataset/public` → `./working/submission.csv` and graded. The final one should be competitive with strong agents.
 7. Write `SUBMISSION_GUIDE.md` with field-by-field paste-in instructions, expected row counts and the sample-submission score.
 
+## Git
+- `main` is the integration branch. Open every pull request against `main`, and start new work branches from the latest `main`.
+- Don't rewrite history on pushed branches (no force-push, no `reset` onto another branch). Bring a branch up to date with `git merge --ff-only origin/main` or a merge commit.
+
 ## Shell note
 Don't put `rm -rf` inside `bash -c` strings or scripts launched by them. The harness blocks it. Use fresh timestamped directories instead.
