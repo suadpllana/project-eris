@@ -1,133 +1,172 @@
 # %% [markdown]
-# ## 1. Quick look at the data
-# The pollutant columns are right-skewed and have multi-hour gaps. The metric is RMSE in
-# log1p space, so everything below is modelled on `log1p(concentration)`.
+# ## 1. Episode features (version 1)
+# One row per (episode, station, forecast hour h = 0..23). The same function serves the
+# training episodes (pseudo-targets) and the test episodes:
+# * **calendar:** forecast hour, month, weekday;
+# * **weather at the station for the target hour:** the target-day weather is provided as
+#   a perfect-forecast proxy;
+# * **network context for each of the six pollutants:** the network-mean log concentration
+#   at the last context hour, over the last 6 and 24 hours, and over the first 24 context
+#   hours, plus the value at the same hour yesterday and the spread across stations at the
+#   last hour.
+#
+# Only context hours (< 72) of the network tensors are read, so the forecast never sees
+# the target day's pollutants.
 
 # %%
-print(train[POL].describe().T[["mean", "50%", "max"]])
-print("\nMissing fraction per pollutant (train):")
-print(train[POL].isna().mean().round(4))
-print("\nMissing fraction per column (test):")
-print(test[MET + ["wd"]].isna().mean().round(4))
+def rep(a):
+    return np.repeat(a, HOR)
 
-# %% [markdown]
-# ## 2. Wide hourly matrices
-# One matrix per pollutant: rows = hours, columns = network stations, values = log1p
-# concentration. Missing readings stay NaN; they are never filled with 0.
-
-# %%
-TIMES = pd.DatetimeIndex(sorted(train.ts.unique()))
-LOGW = {p: np.log1p(train.pivot(index="ts", columns="station", values=p).reindex(TIMES))
-        for p in POL}
-allrows = pd.concat([train, test], ignore_index=True)
-
-# %% [markdown]
-# ## 3. Baseline under leave-one-station-out (LOSO) validation
-# The test set is four *unseen* stations, so validation must hold out whole stations.
-# A random row split would leak each station's level through autocorrelated neighbouring
-# hours. Baseline: for station s, predict the hourly log-mean of the *other* network stations.
-
-# %%
-def rmsle_log(pred_log, true_log):
-    m = ~np.isnan(true_log) & ~np.isnan(pred_log)
-    return float(np.sqrt(np.mean((pred_log[m] - true_log[m]) ** 2)))
-
-base_scores = {}
-for p in POL:
-    errs = []
-    for s in NET:
-        others = [o for o in NET if o != s]
-        pred = LOGW[p][others].mean(axis=1).to_numpy()
-        errs.append(rmsle_log(pred, LOGW[p][s].to_numpy()))
-    base_scores[p] = np.mean(errs)
-print("LOSO network-mean baseline:", {k: round(v, 4) for k, v in base_scores.items()})
-print("LOSO network-mean MCRMSLE: %.4f" % np.mean(list(base_scores.values())))
-
-# %% [markdown]
-# ## 4. Features (version 1)
-# For every station we build one row per hour:
-# * calendar: hour, month, day-of-year, weekday, time index
-# * own meteorology, with wind direction encoded as a circle (sin/cos and u/v components).
-#   An ordinal 0-15 code would put NNW and N 15 apart.
-# * network pollutant aggregates (mean/std/min/max of log1p) at the same hour, computed
-#   from the network stations **other than the station itself**. Including a training
-#   station's own reading would leak its label into the features.
-
-# %%
-WD_ANGLE = {d: i * np.pi / 8 for i, d in enumerate(DIRS)}
-
-def station_features(s):
-    others = [o for o in NET if o != s]
-    g = allrows[allrows.station == s].set_index("ts").reindex(TIMES)
-    f = {"id": g["id"].to_numpy(), "station": np.full(len(TIMES), s)}
-    f["hour"] = TIMES.hour; f["month"] = TIMES.month
-    f["doy"] = TIMES.dayofyear; f["dow"] = TIMES.dayofweek
-    f["t"] = (TIMES - TIMES[0]).days.to_numpy()
-    for m in MET:
-        f[m] = g[m].to_numpy()
-    ang = g["wd"].map(WD_ANGLE).to_numpy(dtype=float)
-    f["wd_sin"], f["wd_cos"] = np.sin(ang), np.cos(ang)
-    f["u"], f["v"] = -g["WSPM"].to_numpy() * np.sin(ang), -g["WSPM"].to_numpy() * np.cos(ang)
-    f["dew_dep"] = f["TEMP"] - f["DEWP"]
+def episode_features(P, Wst, Wnet, month, wday):
+    E = month.shape[0]
+    f = {"h": np.tile(np.arange(HOR), E),
+         "month": month[:, CTX:].ravel(), "weekday": wday[:, CTX:].ravel()}
+    for w in WXCOLS:
+        f[w] = Wst[w][:, CTX:].ravel()
     for p in POL:
-        w = LOGW[p][others]
-        f[f"net_mean_{p}"] = w.mean(axis=1).to_numpy()
-        f[f"net_std_{p}"] = w.std(axis=1).to_numpy()
-        f[f"net_min_{p}"] = w.min(axis=1).to_numpy()
-        f[f"net_max_{p}"] = w.max(axis=1).to_numpy()
-        f[f"y_{p}"] = LOGW[p][s].to_numpy() if s in NET else np.full(len(TIMES), np.nan)
-    return pd.DataFrame(f)
-
-FEAT = pd.concat([station_features(s) for s in NET + HELD], ignore_index=True)
-COLS = [c for c in FEAT.columns if c not in ("id", "station") and not c.startswith("y_")]
-TR = FEAT[FEAT.station.isin(NET)].reset_index(drop=True)
-TE = FEAT[FEAT.station.isin(HELD)].reset_index(drop=True)
-print("feature matrix:", TR.shape, TE.shape, "| features:", len(COLS))
+        M = np.nanmean(P[p][:, :CTX, :], axis=2)          # network mean per context hour
+        f[f"{p}_last"] = rep(M[:, -1])
+        f[f"{p}_last6"] = rep(np.nanmean(M[:, -6:], axis=1))
+        f[f"{p}_last24"] = rep(np.nanmean(M[:, -24:], axis=1))
+        f[f"{p}_first24"] = rep(np.nanmean(M[:, :24], axis=1))
+        f[f"{p}_yday"] = M[:, CTX - 24:CTX].ravel()        # same hour, previous day
+        f[f"{p}_std_last"] = rep(np.nanstd(P[p][:, CTX - 1, :], axis=1))
+    return f
 
 # %% [markdown]
-# ## 5. LightGBM per pollutant with LOSO folds
-# 8 folds, each holding out one network station. Rows with a missing label are dropped for
-# that pollutant only. The test prediction is the average of the 8 fold models.
+# ## 2. Training rows: every network station takes a turn as the "unmonitored" target
+# For pseudo-target station s, the network features come from the **other 7** network
+# stations. Including s's own readings would leak its label into its features, a
+# relationship that does not exist at the real target stations.
 
 # %%
-PARAMS = dict(objective="regression", learning_rate=0.05, num_leaves=63, min_data_in_leaf=100,
-              feature_fraction=0.7, bagging_fraction=0.8, bagging_freq=1, lambda_l2=1.0,
+def build_train():
+    blocks = []
+    for k, s in enumerate(NET):
+        others = [j for j in range(len(NET)) if j != k]
+        oth_all = [ALL.index(NET[j]) for j in others]
+        P = {p: TR_P[p][:, :, others] for p in POL}
+        Wst = {w: TR_W[w][:, :, ALL.index(s)] for w in WXCOLS}
+        Wnet = {w: np.nanmean(TR_W[w][:, :, oth_all], axis=2) for w in WXCOLS}
+        f = episode_features(P, Wst, Wnet, TR_MONTH, TR_WDAY)
+        f["station"] = np.full(len(f["h"]), s)
+        f["origin"] = np.repeat(TR_ORIGIN.to_numpy(), HOR)
+        for p in POL:
+            f[f"y_{p}"] = TR_P[p][:, CTX:, k].ravel()
+        blocks.append(pd.DataFrame(f))
+    return pd.concat(blocks, ignore_index=True)
+
+def build_test():
+    net_all = [ALL.index(s) for s in NET]
+    blocks = []
+    for t in TGT:
+        Wst = {w: TE_W[w][:, :, ALL.index(t)] for w in WXCOLS}
+        Wnet = {w: np.nanmean(TE_W[w][:, :, net_all], axis=2) for w in WXCOLS}
+        f = episode_features(TE_P, Wst, Wnet, TE_MONTH, TE_WDAY)
+        h = f["h"]
+        f["key"] = (np.repeat(np.array(FIDS, dtype=object), HOR) + "_" + t + "_h"
+                    + pd.Series(h).map("{:02d}".format).to_numpy())
+        blocks.append(pd.DataFrame(f))
+    return pd.concat(blocks, ignore_index=True)
+
+TRF, TEF = build_train(), build_test()
+COLS = [c for c in TRF.columns if c not in ("station", "origin", "key") and not c.startswith("y_")]
+print("train rows:", TRF.shape, "| test rows:", TEF.shape, "| features:", len(COLS),
+      f"[{time.time() - T0:.0f}s]")
+
+# %% [markdown]
+# ## 3. Validation that mirrors the test: new stations AND a later time period
+# The test is both spatial (unmonitored stations) and temporal (the year after training).
+# Each fold therefore holds out two network stations and validates them only on the last
+# training year (origins from 2015-03-01), with models trained on the other six stations
+# before that date. Random row splits would leak through autocorrelated neighbouring
+# hours and overlapping episodes.
+
+# %%
+VAL_START = np.datetime64("2015-03-01")
+PAIRS = [NET[i::4] for i in range(4)]
+PARAMS = dict(objective="regression", learning_rate=0.05, num_leaves=31, min_data_in_leaf=200,
+              feature_fraction=0.7, bagging_fraction=0.8, bagging_freq=1, lambda_l2=5.0,
               verbose=-1, num_threads=os.cpu_count(), seed=0)
 
-def fit_loso(TR, TE, cols, params, rounds=2000):
-    cv, preds = {}, {}
+def validate(TRF, cols, target_fn=None, params=PARAMS):
+    """Returns out-of-fold predictions (log space) on validation rows and best iterations."""
+    oof = {p: np.full(len(TRF), np.nan) for p in POL}
+    iters = {p: [] for p in POL}
+    late = (TRF.origin >= VAL_START).to_numpy()
     for p in POL:
-        y = TR[f"y_{p}"].to_numpy()
-        ok = ~np.isnan(y)
-        oof = np.full(len(TR), np.nan)
-        pt = np.zeros(len(TE))
-        for s in NET:
-            va = (TR.station == s).to_numpy()
-            dtr = lgb.Dataset(TR.loc[ok & ~va, cols], y[ok & ~va])
-            dva = lgb.Dataset(TR.loc[ok & va, cols], y[ok & va])
-            m = lgb.train(params, dtr, rounds, valid_sets=[dva],
+        y = TRF[f"y_{p}"].to_numpy()
+        off = target_fn(TRF, p) if target_fn else 0.0
+        t = y - off
+        ok = ~np.isnan(t)
+        for pair in PAIRS:
+            held = TRF.station.isin(pair).to_numpy()
+            tr, va = ok & ~held & ~late, ok & held & late
+            m = lgb.train(params, lgb.Dataset(TRF.loc[tr, cols], t[tr]), 3000,
+                          valid_sets=[lgb.Dataset(TRF.loc[va, cols], t[va])],
                           callbacks=[lgb.early_stopping(100, verbose=False)])
-            oof[ok & va] = m.predict(TR.loc[ok & va, cols], num_iteration=m.best_iteration)
-            pt += m.predict(TE[cols], num_iteration=m.best_iteration) / len(NET)
-        cv[p] = rmsle_log(np.clip(oof, 0, None), y)
-        preds[p] = np.clip(pt, 0, None)
-        print(f"{p:6s} LOSO RMSLE {cv[p]:.4f}  (baseline {base_scores[p]:.4f})  "
-              f"[{time.time() - T0:.0f}s]")
-    print("LOSO MCRMSLE: %.4f" % np.mean(list(cv.values())))
-    return cv, preds
+            oof[p][va] = m.predict(TRF.loc[va, cols], num_iteration=m.best_iteration) + (
+                off[va] if target_fn else 0.0)
+            iters[p].append(m.best_iteration)
+    return oof, iters
 
-cv1, pred_log = fit_loso(TR, TE, COLS, PARAMS)
+def report(oof, label):
+    errs, per = [], {}
+    for p in POL:
+        y = TRF[f"y_{p}"].to_numpy()
+        m = ~np.isnan(oof[p]) & ~np.isnan(y)
+        e = np.clip(oof[p][m], 0, None) - y[m]
+        per[p] = round(float(np.sqrt(np.mean(e ** 2))), 4)
+        errs.append(e)
+    pooled = float(np.sqrt(np.mean(np.concatenate(errs) ** 2)))
+    print(f"{label}: pooled RMSLE {pooled:.4f} | per pollutant {per}")
+    return pooled
+
+# Baseline on the same validation rows: persistence of the network mean at the last hour.
+late_rows = (TRF.origin >= VAL_START).to_numpy()
+persist = {p: np.where(late_rows, TRF[f"{p}_last"].fillna(TRF[f"{p}_last24"]).to_numpy(), np.nan) for p in POL}
+report(persist, "VAL persistence baseline")
+
+oof1, iters1 = validate(TRF, COLS)
+val1 = report(oof1, "VAL LightGBM v1")
+print(f"[{time.time() - T0:.0f}s]")
 
 # %% [markdown]
-# ## 6. Write the submission
-# Back-transform with expm1, clip at 0, one row per test id.
+# ## 4. Final models on all training episodes, then predict the test episodes
+# The number of boosting rounds is the mean best iteration from validation, scaled up a
+# little because the final model sees more data.
 
 # %%
-sub = pd.DataFrame({"id": TE["id"]})
-for p in POL:
-    sub[p] = np.expm1(pred_log[p]).clip(min=0)
-assert len(sub) == len(test) and set(sub.id) == set(test.id)
-assert np.isfinite(sub[POL].to_numpy()).all()
-sub.to_csv(OUT + "submission.csv", index=False)
-print(sub.head())
-print("saved", OUT + "submission.csv", f"total time {time.time() - T0:.0f}s")
+def fit_predict(TRF, TEF, cols, iters, target_fn=None, test_off_fn=None, params=PARAMS):
+    preds = {}
+    for p in POL:
+        y = TRF[f"y_{p}"].to_numpy()
+        off = target_fn(TRF, p) if target_fn else 0.0
+        t = y - off
+        ok = ~np.isnan(t)
+        rounds = int(np.mean(iters[p]) * 1.1) + 1
+        m = lgb.train(params, lgb.Dataset(TRF.loc[ok, cols], t[ok]), rounds)
+        preds[p] = m.predict(TEF[cols]) + (test_off_fn(TEF, p) if test_off_fn else 0.0)
+    return preds
+
+pred_log = fit_predict(TRF, TEF, COLS, iters1)
+
+# %% [markdown]
+# ## 5. Write the submission
+# Map the (episode, station, hour) rows onto the long-format test ids, back-transform with
+# expm1 and clip at 0.
+
+# %%
+def write_submission(pred_log):
+    parts = []
+    for p in POL:
+        parts.append(pd.DataFrame({"id": TEF["key"] + "_" + p,
+                                   "value": np.expm1(np.clip(pred_log[p], 0, None))}))
+    allp = pd.concat(parts, ignore_index=True).set_index("id")["value"]
+    sub = pd.DataFrame({"id": test["id"], "value": allp.reindex(test["id"]).to_numpy()})
+    assert sub["value"].notna().all() and np.isfinite(sub["value"]).all() and (sub["value"] >= 0).all()
+    sub.to_csv(OUT + "submission.csv", index=False)
+    print(sub.head())
+    print("saved", OUT + "submission.csv", len(sub), "rows", f"total time {time.time() - T0:.0f}s")
+
+write_submission(pred_log)

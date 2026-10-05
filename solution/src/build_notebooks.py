@@ -10,22 +10,20 @@ import nbformat as nbf
 HERE = Path(__file__).parent
 
 HEADERS = {
-    "v1": "# Beijing Virtual Air-Quality Stations: solution v1 (baseline)\n\n"
-          "First full pipeline. It scores a simple spatial baseline under leave-one-station-out "
-          "validation, then trains one LightGBM model per pollutant on calendar features, local "
-          "weather and leave-self-out network aggregates.",
-    "v2": "# Beijing Virtual Air-Quality Stations: solution v2 (temporal context)\n\n"
-          "Builds on v1. It adds temporal context from the network (centred rolling means, "
-          "lags and leads), 24-hour wind and rain summaries, and the cross-pollutant Ox = NO2 + O3 "
-          "signal.",
-    "v3": "# Beijing Virtual Air-Quality Stations: solution v3 (final)\n\n"
-          "Same features as v2. It trains two complementary LightGBM models per pollutant, one on "
-          "the log concentration and one on the station's offset from the leave-self-out network "
-          "mean. It blends them with weights chosen on leave-one-station-out predictions and "
-          "reports per-station diagnostics. "
-          "Things tried during development that did **not** help under LOSO (and so are left out): "
-          "nearest-neighbour readings picked by weather similarity, proximity-weighted network "
-          "means, station-level climate descriptors, and heavier regularisation.",
+    "v1": "# Cold-Start Air-Quality Forecasting: solution v1 (baseline)\n\n"
+          "Cuts the continuous training period into the same 72 h context + 24 h target "
+          "episodes as the test. Every network station takes a turn as a pseudo-unmonitored "
+          "target, with leave-self-out network features. Validation holds out stations and the "
+          "last training year. Model: one LightGBM per pollutant on calendar features, "
+          "target-hour weather and network context levels.",
+    "v2": "# Cold-Start Air-Quality Forecasting: solution v2 (richer features)\n\n"
+          "Builds on v1. It adds target-day weather summaries, weather change against the "
+          "context (clean-up fronts), the site's weather relative to the network (site offsets), "
+          "network trend and diurnal profile, and cross-pollutant signals (Ox, PM2.5/PM10).",
+    "v3": "# Cold-Start Air-Quality Forecasting: solution v3 (final)\n\n"
+          "Same features as v2. It adds a second model family that forecasts the change from the "
+          "recent network level, blends it with the direct model using weights chosen on "
+          "validation only, and reports diagnostics by station and forecast hour.",
 }
 
 

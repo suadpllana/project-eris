@@ -1,24 +1,22 @@
-# Project Eris challenge: Beijing Virtual Air-Quality Stations
+# Project Eris challenge: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
 
 A complete Shipd Eris submission package built on the draft dataset **"Beijing Multi-Site Air Quality"** (UCI id 501, CC BY 4.0).
 
-**Task.** 8 Beijing monitoring sites are fully labelled. 4 held-out sites (Gucheng, Huairou, Nongzhanguan, Wanliu) come with weather only. The solver reconstructs all 6 pollutants (PM2.5, PM10, SO2, NO2, CO, O3) at the held-out sites for every hour from 2013-03 to 2017-02, about 140k rows × 6 targets.
+**Task.** Next-day, hour-by-hour forecasts of 6 pollutants at 4 Beijing sites that never had a pollutant monitor. The forecasts use 72 hours of readings from 8 monitored network sites, plus weather. Training covers 2013-03 to 2016-02. The test is 73 independent forecast episodes from the following year.
 
-**Metric.** Mean column-wise RMSLE, where lower is better.
+**Metric.** RMSLE over 41,491 (episode, site, hour, pollutant) rows; lower is better.
 
 ## Repository layout
 
-| Path | What it is | Where it goes on Shipd |
-|---|---|---|
-| `dataset/raw/PRSA2017_Data_20130301-20170228.zip` | Raw upload (already attached to your draft dataset) | Dataset → Data Files |
-| `dataset/DATASET_DESCRIPTION.md` | Corrected dataset description (adds the missing Features column list) | Dataset → Description |
-| `challenge/problem_description.md` | Problem statement the agent sees | Challenge → Problem Description |
-| `challenge/prepare.py` | Deterministic public/private split | Challenge → Prepare script |
-| `challenge/grade.py` | MCRMSLE grader with input validation | Challenge → Grading script |
-| `challenge/config.yaml` | Name / difficulty / domain / score range | Challenge → Config / Domain & Difficulty |
-| `challenge/rubrics.md` | 16 rubric criteria (8 REQUIRED, 8 RECOMMENDED) | Challenge → Rubrics |
-| `solution/solution_v1.ipynb` … `solution_v3.ipynb` | Reference notebooks: baseline → improved → final | Solutions (upload each as `solution.ipynb`) |
-| `solution/src/` | Plain-Python sources the notebooks are built from | not uploaded |
-| `tools_check.sh` | Local determinism + grading check | not uploaded |
+- `dataset/raw/PRSA2017_Data_20130301-20170228.zip`: raw upload, already attached to your dataset (Dataset → Data Files)
+- `dataset/DATASET_DESCRIPTION.md`: dataset description (Dataset → Description)
+- `challenge/problem_description.md`: problem statement the agent sees (Challenge → Problem Description)
+- `challenge/prepare.py`: deterministic public/private build (Challenge → Pipeline → prepare.py)
+- `challenge/grade.py`: RMSLE grader with input validation (Challenge → Grading Script, Custom)
+- `challenge/config.yaml`: values for the Grading Configuration and Difficulty fields
+- `challenge/rubrics.md`: 16 rubric criteria (8 REQUIRED, 8 RECOMMENDED), in case rubrics are re-enabled
+- `solution/solution_v1.ipynb` … `solution_v3.ipynb`: executed reference notebooks, baseline → final (upload as `solution.ipynb`)
+- `solution/src/`: plain-Python sources the notebooks are built from (not uploaded)
+- `tools_check.sh`: local determinism and grading check (not uploaded)
 
-See `SUBMISSION_GUIDE.md` for the click-by-click steps and the verified scores.
+See `SUBMISSION_GUIDE.md` for the click-by-click steps.

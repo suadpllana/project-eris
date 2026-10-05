@@ -1,99 +1,105 @@
-# Rubrics: Beijing Virtual Air-Quality Stations
+# Rubrics: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
 
-Each criterion below can be entered as one rubric item: **Importance**, **Type**, **Criterion** and **Rationale**. The score thresholds refer to the reference figures in the problem description and the reference solution. Test MCRMSLE values are:
-- network-median constant: 1.029
-- month × hour climatology: 0.906
-- hourly network log-mean: 0.4815
-- weather-and-calendar-only gradient boosting: about 0.50
-- reference solutions: v1 0.4578, v2 0.4359, v3 0.4367 (v3 has the best leave-one-station-out score, 0.4562)
+Each criterion below can be entered as one rubric item: **Importance**, **Type**, **Criterion** and **Rationale**.
+
+Test RMSLE reference points:
+- training median: 1.014
+- month × hour climatology: 0.876
+- network persistence: 0.831
+- reference solutions: v1 0.6055, v2 0.5669, v3 0.5657
 
 ---
 
 ### 1. REQUIRED · TRAINING
-**Criterion:** Validates by holding out entire stations, for example leave-one-station-out or GroupKFold grouped on `station` over the 8 training sites. The final performance estimate is not a random row-level or shuffled K-fold score over `train.csv`.
+**Criterion:** Builds training examples from the continuous `train.csv` with the **same structure as the test episodes**:
+- forecast origin at 00:00;
+- 72 hours of network context before the origin;
+- 24 forecast hours after it, with only weather available for the target day.
 
-**Rationale:** The test set is made of 4 sites the model never sees labelled. Hourly readings at one site are strongly autocorrelated and share the site's calibration and local sources. A row-level split therefore leaks each site's level into validation and gives a badly optimistic estimate.
+The test is not treated as a generic per-row regression.
+
+**Rationale:** Test rows are defined relative to a forecast origin, with only past network readings available. A model trained on same-hour network readings (a nowcast) has no matching inputs at test time. The episode structure must be reproduced in training for the features to mean the same thing.
 
 ### 2. REQUIRED · TRAINING
-**Criterion:** Training examples built from network stations must not use the target station's own pollutant readings as inputs. Network aggregates (mean, median, nearest neighbour, etc.) for a training station are computed from the *other* network stations only.
+**Criterion:** When a network station is used as a pseudo-target, its own pollutant readings are excluded from the network features built for it. For example, network aggregates for station s come from the other 7 stations.
 
-**Rationale:** If a network station's own reading is inside its network-mean feature, the label leaks into the features. The model learns to copy it, and that relationship does not exist at the held-out sites, which have no readings. This is the most common silent failure on this task.
+**Rationale:** The 4 target sites have no readings of their own. If a training station's own context sits inside its network features, the model learns to lean on the site's own history. That input does not exist at test time, and validation becomes optimistic.
 
-### 3. REQUIRED · FEATURE_ENGINEERING
-**Criterion:** Uses the concurrent pollutant measurements of the 8 network stations (from `train.csv`, joined on timestamp) as inputs for the test sites. The model is not limited to each test row's own weather and calendar fields.
+### 3. REQUIRED · TRAINING
+**Criterion:** Uses no future information:
+- test features come only from the same episode's context hours (rel_hour < 0), the target-day weather and the training data;
+- training features never read network pollutants from the target day;
+- episodes are not chained or re-ordered to interpolate a target day from other episodes' context.
 
-**Rationale:** Beijing pollution is dominated by regional episodes shared across sites. A model using only local weather and calendar scores about 0.50 MCRMSLE, worse than simply averaging the network each hour (0.4815). The task is spatial reconstruction, and the network readings for the same hour are allowed and essential.
+**Rationale:** This is a forecasting benchmark. Using the target day's network readings, or linking episodes by weather continuity, turns it into reconstruction and inflates the score. The problem statement explicitly forbids it.
 
-### 4. REQUIRED · DATA_HANDLING
-**Criterion:** Treats `NA` pollutant values as missing:
+### 4. REQUIRED · TRAINING
+**Criterion:** Validates on **unseen stations and a later period at the same time**. For example, it holds out network stations and validates them only on the last training year (origins from 2015-03), training on earlier data from the other stations. It does not use a random row-level or random-episode split.
+
+**Rationale:** The test shifts both location (cold-start sites) and time (the following year). Overlapping episodes and autocorrelated hours make random splits badly optimistic. In the reference solution, this split predicts test performance within about 0.01 RMSLE.
+
+### 5. REQUIRED · DATA_HANDLING
+**Criterion:** Handles missing values correctly:
 - rows with a missing label are excluded from training for that pollutant only;
-- missing network readings are handled with NaN-aware aggregation or native missing-value support;
-- missing labels or features are never filled with 0 before being used as targets.
+- missing context readings are handled with NaN-aware aggregation or native missing-value support;
+- missing values are never filled with 0.
 
-**Rationale:** Between 1.5% and 5% of each pollutant column is missing, usually in multi-hour outages. Filling labels with 0 creates large log-space errors and teaches the model false clean-air hours. Dropping a whole row because one of six pollutants is missing throws away valid labels for the other five.
-
-### 5. REQUIRED · MODELING
-**Criterion:** Training targets the metric:
-- the model is fitted on log1p-transformed concentrations, or with an equivalent loss;
-- predictions are back-transformed with expm1;
-- all six output columns are non-negative (clipped at 0 where needed).
-
-**Rationale:** MCRMSLE is RMSE in log1p space, averaged over pollutants on very different scales (CO in the thousands, SO2 in single digits). Fitting raw concentrations lets the high-concentration winter haze hours dominate. Negative values are rejected by the grader.
+**Rationale:** Analyser outages leave 2–5% of readings missing, often in multi-hour runs. Zero-filling creates impossible clean-air values, which distort both labels and context features in log space.
 
 ### 6. REQUIRED · MODELING
-**Criterion:** Achieves a test MCRMSLE of at most 0.47.
+**Criterion:** Trains on log1p-transformed concentrations, or with an equivalent loss, then back-transforms with expm1 and clips predictions at 0.
 
-**Rationale:** 0.47 beats the hourly network-mean baseline (0.4815) and the weather-only model (about 0.50). A solution that cannot beat simple averaging of the network has not learned anything useful about the held-out sites.
+**Rationale:** The metric is RMSE in log1p space, pooled over six pollutants with very different scales. Training on raw concentrations lets winter haze episodes and CO's thousands of µg/m³ dominate. Negative values are rejected by the grader.
 
-### 7. RECOMMENDED · MODELING
-**Criterion:** Achieves a test MCRMSLE of at most 0.445.
+### 7. REQUIRED · MODELING
+**Criterion:** Achieves a test RMSLE of at most 0.70.
 
-**Rationale:** Getting below 0.445 needs leak-free network features, temporal context and regularisation suited to only 8 training sites; the reference solutions reach about 0.44. A first-pass gradient-boosting model with default-style settings lands near 0.46. This threshold separates strong solutions from adequate ones.
+**Rationale:** 0.70 clearly beats network persistence (0.831) and climatology (0.876). A solution above it has not learned to combine network context with weather.
 
-### 8. REQUIRED · DATA_HANDLING
-**Criterion:** Does not use any external air-quality measurements, including the original UCI or Kaggle copies of the Beijing Multi-Site dataset, which contain the held-out sites' answers.
+### 8. RECOMMENDED · MODELING
+**Criterion:** Achieves a test RMSLE of at most 0.59.
 
-**Rationale:** The raw source is public. Looking up the held-out sites' values is answer leakage, not modelling. The problem statement explicitly forbids it. Public site metadata such as coordinates is allowed.
+**Rationale:** Getting there needs target-day weather dynamics and site-offset features on top of a leak-free episode pipeline. The reference v1, with context and target-hour weather only, scores 0.6055. v2 and v3 score about 0.566.
 
-### 9. RECOMMENDED · AGENT_BEHAVIOR
-**Criterion:** Investigates the spatial structure between sites and tests any proximity idea under station-held-out validation, keeping it only if LOSO improves. Examples: cross-site correlation of pollutants, or noticing that several sites share an identical weather record (Changping = Dingling; Dongsi = Nongzhanguan = Tiantan; Aotizhongxin = Guanyuan). Proximity ideas include nearest-site readings and similarity-weighted means.
+### 9. REQUIRED · DATA_HANDLING
+**Criterion:** Does not use external air-quality data, including the public UCI or Kaggle copies of this dataset, which contain the hidden answers.
 
-**Rationale:** Shared weather records show which sites are near each other, so "copy the nearest site" is tempting. But Changping and Dingling share weather and still differ strongly in NO2 and O3. In the reference experiments, nearest-neighbour features *raised* test error, from 0.441 to 0.455 (for Huairou, NO2 went from 0.64 to 0.78). Good agents check such ideas under LOSO instead of assuming they help.
+**Rationale:** Looking up the target sites' measurements is answer leakage. It is explicitly forbidden.
 
-### 10. RECOMMENDED · COMMUNICATION
-**Criterion:** Reports validation error per held-out training station and per pollutant, not only the overall average. Notes that the suburban/rural network sites (Changping, Dingling, Shunyi) and the NO2/O3 columns are the hardest, and what that implies for the suburban test site (Huairou).
+### 10. RECOMMENDED · FEATURE_ENGINEERING
+**Criterion:** Uses the target-day weather as a forecast signal: rain totals, wind speed and direction, and the change from the last context day (for example a switch to dry northerly flow), not only the weather at the target hour.
 
-**Rationale:** The overall score hides a large spread. Urban sites near the network centre are reconstructed well (RMSLE about 0.3), while suburban sites with less traffic have NO2 and O3 offsets of 0.6 or more in log space. Per-station diagnostics are how an agent finds where the error comes from and avoids over-trusting one average number.
+**Rationale:** Beijing haze episodes end with cold fronts and rain. Persistence cannot see a clean-up coming. In the reference solutions, target-day weather summaries and changes give most of the gain from v1 (0.6055) to v2 (0.5669).
 
 ### 11. RECOMMENDED · FEATURE_ENGINEERING
-**Criterion:** Adds temporal context from the network and local series, using the hours before *and* after the target hour. Examples are centred rolling means, lags and leads of the network readings, or 24-hour wind and rain summaries.
+**Criterion:** Gives the model transferable site descriptors, such as the site's weather relative to the network mean (a pressure offset as an elevation proxy, temperature and wind offsets), instead of relying on the network average alone.
 
-**Rationale:** This is reconstruction, not forecasting, so the full network history is available. Smoothing reduces noise in single-hour readings and captures transport lag between sites, which the same-hour snapshot cannot.
+**Rationale:** Unmonitored sites differ systematically from the urban network. For example, suburban sites have less traffic NO2 and more O3. Without labels at those sites, these offsets must be inferred from inputs that exist everywhere, and weather offsets are one of them.
 
-### 12. RECOMMENDED · FEATURE_ENGINEERING
-**Criterion:** Encodes wind direction `wd` as a circular quantity, for example sin/cos of the bearing or u/v wind components combined with `WSPM`, not as an arbitrary integer label 0–15.
+### 12. RECOMMENDED · MODELING
+**Criterion:** Does not use station identity (name, one-hot, ordinal or target encoding) as a model feature.
 
-**Rationale:** NNW and N are neighbours but an ordinal code puts them 15 apart. Wind direction matters a lot in Beijing: southerly flow brings polluted air from the North China Plain and northerly flow clears it.
+**Rationale:** All four test sites are categories the model has never seen. Any validation gain from station identity comes from memorising training sites and does not transfer.
 
 ### 13. RECOMMENDED · FEATURE_ENGINEERING
-**Criterion:** Uses information across pollutants. When predicting each pollutant, the model also has the network readings of the other pollutants, or a combined quantity such as Ox = NO2 + O3.
+**Criterion:** Encodes wind direction `wd` as a circular quantity, such as sin/cos of the bearing or u/v components with `WSPM`, not as an integer label 0–15.
 
-**Rationale:** O3 and NO2 trade off through photochemical titration, and PM2.5, PM10 and CO move together in combustion and haze episodes. Using other pollutants' readings sharpens each target, especially O3, which is the hardest column (highest RMSLE).
+**Rationale:** NNW and N are neighbours, but an ordinal code puts them 15 apart. Wind direction drives pollutant transport in Beijing: southerly flow brings haze and northerly flow clears it.
 
 ### 14. RECOMMENDED · AGENT_BEHAVIOR
-**Criterion:** Before building a learned model, scores at least one simple spatial baseline (such as the hourly network log-mean) under the same station-held-out validation. Later improvements are compared against that baseline.
+**Criterion:** Scores simple baselines (persistence of the network level, climatology) under the same validation split before adding model complexity, and compares each improvement against them.
 
-**Rationale:** The simple baseline is surprisingly strong (0.4815). A weather-only gradient-boosting model (about 0.50) and some feature-rich variants are worse than it or barely better. Without the comparison an agent cannot tell whether added complexity helps.
+**Rationale:** Persistence scores 0.83 on validation and test. Comparing against it shows whether the model actually forecasts or only reproduces the recent level.
 
-### 15. REQUIRED · CODE_QUALITY
-**Criterion:** Writes `submission.csv` with:
-- exactly 140,256 rows, with one unique `id` per row of `test.csv`;
-- the columns `id, PM2.5, PM10, SO2, NO2, CO, O3`, spelled exactly, including the dot in `PM2.5`;
-- no missing or non-finite values.
+### 15. RECOMMENDED · COMMUNICATION
+**Criterion:** Reports validation error broken down by held-out station and by forecast hour or pollutant, and comments on where the error concentrates.
 
-**Rationale:** The grader rejects malformed submissions. Common slips include renaming `PM2.5` to `PM25` or `PM2_5`, dropping test hours with missing weather, and leaving NaN predictions where features were missing.
+**Rationale:** Suburban and rural sites (Changping, Dingling, Shunyi) and the NO2/O3 columns carry most of the error. Dingling's NO2 is about 0.96 RMSLE against roughly 0.37 at urban sites. Breakdowns show which parts of the problem the model has not solved.
 
-### 16. RECOMMENDED · MODELING
-**Criterion:** Does not use station identity (name, one-hot, ordinal or target encoding of `station`) as a model input.
+### 16. REQUIRED · CODE_QUALITY
+**Criterion:** Writes `submission.csv` with columns `id,value`:
+- one row for every id in `test.csv` (41,491 rows);
+- no duplicate ids;
+- no missing, non-finite or negative values.
 
-**Rationale:** All four test stations are categories the model has never seen, so station-identity features carry no usable information at test time. Any validation gain from them comes from memorising the training sites. Site-level behaviour must come from transferable inputs: local weather, network readings and their relationships.
+**Rationale:** The grader rejects malformed submissions. Common slips are predicting only some pollutants, forgetting the long id format (`F001_Gucheng_h07_PM2.5`), or leaving NaN where context features were missing.

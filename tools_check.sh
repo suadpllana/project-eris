@@ -11,4 +11,4 @@ diff <(cd "$OUT/run1" && sha256sum public/* private/*) <(cd "$OUT/run2" && sha25
 (cd challenge && python3 -c "
 import pandas as pd; from grade import grade
 P='$OUT/run1/'
-print('sample_submission MCRMSLE:', round(grade(pd.read_csv(P+'public/sample_submission.csv'), pd.read_csv(P+'private/answers.csv')), 4))")
+print('sample_submission RMSLE:', round(grade(pd.read_csv(P+'public/sample_submission.csv'), pd.read_csv(P+'private/answers.csv')), 4))")

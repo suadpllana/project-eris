@@ -70,6 +70,7 @@ Each station file has a header row and 35,064 data rows (1,461 days × 24 hours)
 - The challenge built on this dataset (`prepare.py`):
   - drops `No`;
   - keeps all 5 numeric weather variables, `wd`, and all 6 pollutants;
-  - holds out 4 complete stations (Gucheng, Huairou, Nongzhanguan, Wanliu) as the test set, publishing their weather but keeping their pollutants private;
-  - keeps the other 8 stations fully labelled for training.
+  - treats 4 stations (Gucheng, Huairou, Nongzhanguan, Wanliu) as unmonitored: their pollutants are never published, only their weather;
+  - publishes March 2013 to February 2016 as continuous hourly training data;
+  - turns March 2016 to February 2017 into independent next-day forecast episodes (72 hours of network context, then a 24-hour target day).
 - These are historical measurements from one metropolitan region, from site-specific instruments. They cannot be used to infer individual exposure or health outcomes.

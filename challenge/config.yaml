@@ -1,6 +1,6 @@
-name: Beijing Virtual Air-Quality Stations
+name: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
 difficulty: medium
-domain: tabular
+domain: time-series forecasting
 
 grade:
   direction: minimize
