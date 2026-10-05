@@ -1,106 +1,73 @@
-# Submission guide: Beijing Virtual Air-Quality Stations
+# Submission guide: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
 
-Follow the steps in order. Every file named here is in this repository.
+This is version 2 of the challenge, rebuilt after the first validation run failed. All paste-in texts use plain bullet lists, because Shipd's text boxes don't accept pasted tables.
 
----
+## What changed, and which failed check each change addresses
 
-## Step 1. Finish the draft dataset (no new upload needed)
+- **Prepared Data Integrity: blank answers.** Test rows are now created only where a real measurement exists, so `answers.csv` has no blank cells.
+- **Target Recoverability: no supported target.** There is now a single target column, `value`, in a long format with one row per (episode, site, hour, pollutant).
+- **Evaluator Contract: known answer, baselines, public/private.** The grader now scores the true answers (0.0) and ranks them above the baselines. It also accepts scoring on subsets of rows, which is needed for public/private leaderboards.
+- **Domain Routing: classified as "Regression".** The task is now time-series forecasting: next-day hourly forecasts from 72-hour context windows.
+- **Novelty: incremental.** The reviewer suggested a domain shift. The task now has three shifts together:
+  - cold-start sites with no pollutant history at all;
+  - an unseen later year (temporal shift);
+  - strict no-look-ahead forecasting.
 
-All paste-in texts use plain bullet lists instead of tables, because Shipd's text boxes do not accept pasted tables.
+## Step 1. Dataset (no new upload)
 
-Open your draft **Beijing Multi-Site Air Quality** dataset.
+Keep the same zip. Optionally, replace the dataset description with `dataset/DATASET_DESCRIPTION.md`, if Shipd still lets you edit it; only its last "Notes" bullet changed. If editing is locked, that's fine: those notes are informational.
 
-1. **Title:** keep `Beijing Multi-Site Air Quality`.
-2. **Description:** replace it with the contents of `dataset/DATASET_DESCRIPTION.md`. The current draft has three problems:
-   - it has an empty "Features" section (the column list is missing);
-   - it ends with a stray `a`;
-   - it says wind direction is not used and does not name the held-out stations. Both are now out of date.
-3. **Data Files:** keep `PRSA2017_Data_20130301-20170228.zip` (7.6 MB). It matches `dataset/raw/` exactly (SHA-256 `d1b9261c…b0b8`).
-4. **License & Source:** CC BY 4.0. Use source URL `https://archive.ics.uci.edu/dataset/501/beijing+multi+site+air+quality+data`; the direct zip URL you already entered also works.
-5. Click **Run validation checks**, then **Mark as Ready**.
+## Step 2. Edit the challenge (same draft, new version)
 
-## Step 2. Create the challenge
+- **Difficulty:** Medium
+- **Compute Tier:** CPU
+- **Challenge Title:** `Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites`
+- **Problem Description:** replace it with all of `challenge/problem_description.md`
+- **Tags:** feature-engineering
+- **Grading Configuration:** **Minimize**, minimum 0, maximum 100
+- **Grading Script:** Custom; replace it with all of `challenge/grade.py`
+- **Pipeline → prepare.py:** replace it with all of `challenge/prepare.py`, then click **Re-run Prepare**
 
-**New Challenge**, then select the dataset above.
+**Expected prepared files:**
+- `public/train.csv`: 315,648 rows
+- `public/test_context.csv`: 84,096 rows
+- `public/test.csv`: 41,491 rows
+- `public/sample_submission.csv`: 41,491 rows
+- `private/answers.csv`: 41,491 rows, with no blank values
 
-| Field | Value |
-|---|---|
-| Domain | Tabular (time series / spatial) |
-| Difficulty | Medium |
-| Challenge Title | `Beijing Virtual Air-Quality Stations` |
-| Problem Description | paste `challenge/problem_description.md` |
-| Prepare script | paste `challenge/prepare.py` |
-| Grading script | paste `challenge/grade.py` |
-| Config | `challenge/config.yaml` (minimize, min 0, max 100) |
+The sample submission grades at **1.014**.
 
-Then click **Rebuild / Run checks**. The prepared dataset must contain:
-- `public/train.csv`: 280,512 rows
-- `public/test.csv`: 140,256 rows
-- `public/sample_submission.csv`: 140,256 rows
-- `private/answers.csv`: 140,256 rows
+## Step 3. Run checks
 
-The sample submission should grade at **1.029**.
-
-`prepare.py` accepts the platform's auto-extracted folder (`PRSA_Data_20130301-20170228/*.csv`) and also the raw zip if it is not extracted. Both give byte-identical output, which I checked.
-
-## Step 3. Rubrics (16 criteria: 8 REQUIRED, 8 RECOMMENDED)
-
-Enter each block of `challenge/rubrics.md` as one rubric item with its Importance, Type, Criterion and Rationale. All of them are specific to this task, for example:
-- leave-self-out network features;
-- LOSO validation;
-- per-pollutant handling of NA;
-- score thresholds of 0.47 and 0.445;
-- never using the public copies of the dataset.
+Click **Run checks** and send me any failure messages and the novelty score.
 
 ## Step 4. Solutions
 
-Each notebook reads `./dataset/public/`, writes only `./working/submission.csv`, and uses only pandas, numpy and lightgbm. Each was executed end-to-end on 4 CPU cores and graded with `grade.py`:
+Each notebook was executed end-to-end in a clean folder (`./dataset/public` in, `./working/submission.csv` out) and graded with `grade.py`:
 
-| File | What changes | LOSO MCRMSLE | Test MCRMSLE | Runtime |
-|---|---|---|---|---|
-| `solution/solution_v1.ipynb` | Baseline: weather and calendar, circular wind, leave-self-out network aggregates, LightGBM per pollutant | 0.4596 | **0.4578** | 16 min |
-| `solution/solution_v2.ipynb` | Adds temporal context (rolling, lag and lead of the network), weather vs network offsets, Ox; tuned regularisation | 0.4650 | **0.4359** | 6.5 min |
-| `solution/solution_v3.ipynb` | Final: blends a direct model and a residual-from-network model, with weights picked on LOSO; per-station diagnostics | **0.4562** | **0.4367** | 11.5 min |
+- **solution_v1.ipynb (baseline):** validation 0.616, test **0.6055**, runtime 1.2 min
+- **solution_v2.ipynb (target-day weather, site offsets, network dynamics):** validation 0.580, test **0.5669**, runtime 2.2 min
+- **solution_v3.ipynb (final; direct + residual blend chosen on validation):** validation 0.574, test **0.5657**, runtime 4.7 min
 
-For comparison, the hourly network-mean baseline scores 0.4815 on test (LOSO 0.4804).
+Baselines on test:
+- network persistence: 0.831
+- climatology: 0.876
+- training median: 1.014
 
-LOSO with only 8 stations is noisy. v2's LOSO is slightly worse than v1's even though v2 is much better on test, mainly because of the weather-vs-network offsets, which help Huairou. The notebooks say this openly rather than over-claiming.
-
-Upload `solution_v3.ipynb` (renamed to `solution.ipynb`) as the challenge's reference solution. If you also post iterative solutions, submit v1, then v2, then v3. The notebooks are saved with their outputs, so reviewers can see the scores without re-running them.
-
-v3 is the final because it has the best validation score (LOSO 0.4562 against 0.4650 for v2). Its test score ties v2's within noise (0.4367 against 0.4359). Choosing on validation rather than test is the correct practice, and reviewers can see this in the notebook.
-
-To regenerate the notebooks from their sources, run `python solution/src/build_notebooks.py`. This produces notebooks without outputs.
+Upload `solution_v3.ipynb` (renamed to `solution.ipynb`) when the platform asks for a reference solution. If you post iterative solutions, submit v1, then v2, then v3.
 
 ## Step 5. Answers for likely reviewer questions
 
-- **"This dataset is well known."** The usual tasks on it are single-station PM2.5 forecasting. This challenge is different: it reconstructs **all six pollutants at unseen sites**, holding out four complete stations, with a fixed split. The problem statement forbids the public copies of the dataset, which would leak the answers, and rubric 8 enforces this.
-- **Why these four test stations?** They cover a mix of site types:
-  - Gucheng, an urban site in the west;
-  - Nongzhanguan, an urban site in the east whose weather twins are in train;
-  - Wanliu, an urban site in the north-west;
-  - Huairou, a suburban site in the north with no weather twin.
-
-  Dingling, the rural background site, was moved into train on purpose. Its weather is identical to Changping's, so its large NO2 offset (about −0.9 in log space) could not be learned from any provided input. That would have added noise rather than a skill to test.
+- **Why can't solvers just interpolate from the network?** The target day's network readings are hidden; only the 72 hours before midnight are given. Test episodes are separated by an unused day, carry no calendar date, and have ids in hashed rather than chronological order. That makes it impractical to chain episodes to recover a target day.
+- **Why is the target-day weather given?** It stands in for a numerical weather forecast, which real air-quality forecasters always have. Without it the task reduces to persistence.
 - **What is hard for an agent?**
-  - Leaking a station's own reading into its network features, which inflates validation.
-  - Validating with random row splits instead of station-held-out folds.
-  - Falling below the surprisingly strong network-mean baseline.
-  - Getting the suburban NO2 and O3 offsets right.
-  - Handling per-pollutant NA labels.
-- **Grader edge cases tested.** These are rejected with clear messages: wrong row count, duplicate ids, unknown or missing ids, missing columns, NaN, inf, negative values and non-numeric values. Rows in any order, extra columns and padded headers are accepted. NA ground truth is skipped for that pollutant only.
-
-## Checklist (from the Eris docs)
-
-- [x] Dataset description documents all 18 columns and their types
-- [x] 420,768 rows
-- [x] prepare.py is deterministic (checked with SHA-256 over two runs; `bash tools_check.sh`)
-- [x] License CC BY 4.0 allows commercial use; source URL documented
-- [x] Problem description is complete; metric formula and code given; submission format exact
-- [x] grade.py scores valid submissions and rejects invalid ones with clear errors
-- [x] 16 task-specific rubrics, all REQUIRED or RECOMMENDED
-- [x] Solutions run end-to-end well under 1 hour and beat every baseline
+  - Rebuilding training episodes that match the test structure from continuous data.
+  - Leave-self-out network features, since a target site has no history of its own.
+  - Validation that holds out both sites and a later time.
+  - Using weather dynamics (clean-up fronts, rain) and site offsets.
+  - Long-format submission bookkeeping.
+- **Grader edge cases tested.** These are rejected with clear messages: missing ids, duplicates, missing columns, NaN, inf, negative and non-numeric values. Rows in any order and extra ids are accepted.
 
 ## Important: your responsibility
 
-The Eris rules say *"You may not use any LLM outputs as part of your submission."* Everything in this repository was drafted by an AI assistant. Before submitting, read every file, check that you agree with it, and edit it into your own work. If you are unsure how Shipd applies that rule to AI-assisted authoring, ask them first.
+The Eris rules say *"You may not use any LLM outputs as part of your submission."* Everything here was drafted by an AI assistant. Review every file and make it your own before submitting. If you're unsure how Shipd applies that rule, ask them first.
