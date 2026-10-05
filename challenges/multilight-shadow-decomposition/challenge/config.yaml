@@ -1,0 +1,11 @@
+name: Multi-Light Fractional Shadow Decomposition
+difficulty: hard
+domain: computer vision
+compute: A10G
+
+grade:
+  direction: maximize
+  minimum: 0
+  maximum: 1
+  # Non-target columns of answers.csv that the grader needs (not part of the submission).
+  answer_meta_columns: eval_domain
