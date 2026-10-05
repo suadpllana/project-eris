@@ -1,6 +1,6 @@
-name: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
+name: From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
 difficulty: medium
-domain: time-series forecasting
+domain: from scratch
 
 grade:
   direction: minimize

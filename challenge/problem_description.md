@@ -1,4 +1,4 @@
-# Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
+# From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
 
 ## Overview
 
@@ -12,6 +12,20 @@ The challenge combines three shifts:
 1. **Forecasting:** each forecast is issued at midnight and covers the next 24 hours (horizons 1–24 h). Only the past is available.
 2. **Cold-start locations:** there are no target labels at the sites being forecast. Any model must learn from the network sites and transfer to new locations.
 3. **Temporal shift:** training covers March 2013 to February 2016. The test covers March 2016 to February 2017, a later year with its own pollution levels and weather.
+
+## Required From-Scratch Setting
+
+This is a **From Scratch** challenge. Competitive solutions should design and train their own neural network from random initialisation. A good fit is a sequence model (for example a recurrent, convolutional or attention-based encoder–decoder) that reads the 72-hour context and the target-day weather and emits the 24-hour, six-pollutant forecast.
+
+- No pre-trained weights or foundation models of any kind (no pre-trained time-series, language or vision models).
+- Classical models such as gradient boosting or linear models may be used as baselines or as auxiliary inputs. The intended main model is a neural network trained from scratch on the provided data.
+- The requirement concerns the intended solution setting, not the formal target. The formal target is the measured concentrations described below.
+
+What makes this a from-scratch modelling problem rather than a feature-table exercise:
+
+- **Variable inputs:** the network has 8 stations with frequent sensor outages, so the inputs are a variable set of irregularly missing series. The model must aggregate them robustly, using masking or set pooling, and should be trained with augmentation such as randomly dropping stations.
+- **No target-site labels:** the target sites never appear with labels. Training samples must be built by letting each network station play the "unmonitored" role, computing its network inputs from the other stations only.
+- **Multi-horizon, multi-output:** each sample is a 24 × 6 output. The model should share structure across horizons and pollutants rather than fit 144 separate regressors.
 
 ## Evaluation
 
@@ -44,7 +58,7 @@ Reference points on the test set:
 
 All files are in `public/`.
 
-**`train.csv`**: continuous hourly data for all 12 sites from 2013-03-01 00:00 to 2016-02-29 23:00 (26,304 hours × 12 sites = 315,648 rows).
+**`history.csv`**: continuous hourly data for all 12 sites from 2013-03-01 00:00 to 2016-02-29 23:00 (26,304 hours × 12 sites = 315,648 rows).
 - The six pollutant columns are filled for the 8 network sites.
 - The pollutant columns are always blank for the 4 target sites.
 
@@ -60,6 +74,12 @@ Columns:
 - WSPM (float): wind speed, m/s
 - PM2.5, PM10, SO2, NO2, CO, O3 (float): pollutant concentrations, µg/m³; blank when not measured
 
+**`train.csv`**: 1,221,145 labelled training rows, in exactly the same layout as `test.csv` plus the target column `value`.
+- There is one forecast episode for every day from 2013-03-04 to 2016-02-29.
+- Each episode has labels for all 8 network sites × 24 hours × 6 pollutants, wherever a measurement exists.
+- `forecast_id` is `T<YYYYMMDD>`, the target day. The episode's 72-hour context is the 72 hours of `history.csv` before 00:00 of that day.
+- Columns: id, forecast_id, station, rel_hour, hour, pollutant, value (µg/m³).
+
 **`test_context.csv`**: the 73 test forecast episodes. There are 96 rows per site per episode: 72 context hours (rel_hour −72 to −1) and 24 target hours (rel_hour 0 to 23). That gives 73 × 12 × 96 = 84,096 rows.
 
 Columns:
@@ -71,7 +91,7 @@ Columns:
 - TEMP, PRES, DEWP, RAIN, wd, WSPM: weather at that site and hour. Weather is given for the target day too, as a stand-in for a numerical weather forecast.
 - PM2.5, PM10, SO2, NO2, CO, O3: network-site readings for the context hours only. They are blank for all target hours and always blank for the 4 target sites.
 
-**`test.csv`**: the 41,491 rows to forecast.
+**`test.csv`**: the 41,491 rows to forecast, in the same layout as `train.csv` without `value`.
 
 Columns:
 
@@ -85,7 +105,7 @@ Notes:
 - Weather for each site was matched by the data publisher to the nearest China Meteorological Administration weather station. Several sites therefore share identical weather records.
 - Missing values are blank. Missing pollutant readings in the context are not zero. Treat them as unknown.
 - Some extreme values sit at instrument reporting limits (999 for PM, 10000 for CO).
-- **No future information:** your forecast for an episode must use only that episode's context rows, the target-day weather, and the training data. Do not reconstruct the test-period timeline by linking episodes.
+- **No future information:** your forecast for an episode must use only that episode's context rows, the target-day weather, and the training files (`history.csv`, `train.csv`). Do not reconstruct the test-period timeline by linking episodes.
 - **External data:** do not use any external air-quality measurements. In particular, do not use the public UCI/Kaggle copies of this dataset, which contain the answers. No external data is needed.
 
 ## Submission

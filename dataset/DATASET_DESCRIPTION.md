@@ -71,6 +71,6 @@ Each station file has a header row and 35,064 data rows (1,461 days × 24 hours)
   - drops `No`;
   - keeps all 5 numeric weather variables, `wd`, and all 6 pollutants;
   - treats 4 stations (Gucheng, Huairou, Nongzhanguan, Wanliu) as unmonitored: their pollutants are never published, only their weather;
-  - publishes March 2013 to February 2016 as continuous hourly training data;
+  - publishes March 2013 to February 2016 as continuous hourly history, plus labelled next-day forecast rows for every day in that period;
   - turns March 2016 to February 2017 into independent next-day forecast episodes (72 hours of network context, then a 24-hour target day).
 - These are historical measurements from one metropolitan region, from site-specific instruments. They cannot be used to infer individual exposure or health outcomes.

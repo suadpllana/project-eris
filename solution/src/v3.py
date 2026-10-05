@@ -1,246 +1,247 @@
 # %% [markdown]
-# ## 1. Episode features (same as v2)
-# Everything from v1:
-# * calendar features;
-# * target-hour weather;
-# * network context levels at several look-back windows.
-#
-# New in v2, each aimed at a specific failure of v1:
-# * **target-day weather summaries:** daily rain total, mean wind speed and u/v
-#   components, minimum and maximum temperature, mean dew point. A rainy or windy target
-#   day cleans the air no matter how dirty the context was.
-# * **weather change against the last context day** (u, v, dew point, pressure,
-#   temperature). A sudden switch to dry northerly flow is the classic Beijing "clean-up"
-#   front, which persistence cannot see coming.
-# * **the site's weather relative to the network** at the target hour (temperature,
-#   pressure, dew point, wind speed). Lower pressure means a higher, more suburban site,
-#   and temperature or wind offsets reflect urban-heat-island and exposure differences.
-#   This is how the model learns site-level offsets without any labels at the site.
-# * **network dynamics:** the trend (last 6 h against last 24 h), the mean at the same hour
-#   over the three context days (a local diurnal profile), the maximum over the last day,
-#   plus Ox = NO2 + O3 and the PM2.5/PM10 ratio (cross-pollutant chemistry signals).
+# ## 1. Sanity check: `train.csv` labels are the history tensors
+# `train.csv` lists every labelled (day, network station, hour, pollutant) in the same long
+# format as `test.csv`. The tensors cut from `history.csv` hold the same values, so the check
+# below confirms that the episode slicing lines up with the official labels.
 
 # %%
-def rep(a):
-    return np.repeat(a, HOR)
-
-def episode_features(P, Wst, Wnet, month, wday):
-    E = month.shape[0]
-    h = np.tile(np.arange(HOR), E)
-    f = {"h": h, "month": month[:, CTX:].ravel(), "weekday": wday[:, CTX:].ravel()}
-    for w in WXCOLS:
-        f[w] = Wst[w][:, CTX:].ravel()
-    for w in ("TEMP", "PRES", "DEWP", "WSPM"):
-        f[f"{w}_vs_net"] = (Wst[w][:, CTX:] - Wnet[w][:, CTX:]).ravel()
-    day, last = slice(CTX, CTX + HOR), slice(CTX - 24, CTX)
-    f["rain_day"] = rep(np.nansum(Wst["RAIN"][:, day], axis=1))
-    f["rain_ctx24"] = rep(np.nansum(Wst["RAIN"][:, last], axis=1))
-    for w in ("WSPM", "u", "v", "DEWP", "PRES", "TEMP"):
-        day_mean = np.nanmean(Wst[w][:, day], axis=1)
-        f[f"{w}_day"] = rep(day_mean)
-        f[f"{w}_chg"] = rep(day_mean - np.nanmean(Wst[w][:, last], axis=1))
-    f["TEMP_day_max"] = rep(np.nanmax(Wst["TEMP"][:, day], axis=1))
-    f["TEMP_day_min"] = rep(np.nanmin(Wst["TEMP"][:, day], axis=1))
-    for p in POL:
-        M = np.nanmean(P[p][:, :CTX, :], axis=2)          # network mean per context hour
-        f[f"{p}_last"] = rep(M[:, -1])
-        f[f"{p}_last6"] = rep(np.nanmean(M[:, -6:], axis=1))
-        f[f"{p}_last24"] = rep(np.nanmean(M[:, -24:], axis=1))
-        f[f"{p}_first24"] = rep(np.nanmean(M[:, :24], axis=1))
-        f[f"{p}_max24"] = rep(np.nanmax(M[:, -24:], axis=1))
-        f[f"{p}_trend"] = f[f"{p}_last6"] - f[f"{p}_last24"]
-        f[f"{p}_yday"] = M[:, CTX - 24:CTX].ravel()        # same hour, previous day
-        prof = np.nanmean(np.stack([M[:, 0:24], M[:, 24:48], M[:, 48:72]]), axis=0)
-        f[f"{p}_profile"] = prof.ravel()                    # 3-day mean at this hour
-        f[f"{p}_std_last"] = rep(np.nanstd(P[p][:, CTX - 1, :], axis=1))
-    f["Ox_last24"] = np.log1p(np.expm1(f["NO2_last24"]) + np.expm1(f["O3_last24"]))
-    f["pm_ratio_last24"] = f["PM2.5_last24"] - f["PM10_last24"]
-    return f
+chk = labels.sample(2000, random_state=0)
+day = pd.to_datetime(chk.forecast_id.str[1:], format="%Y%m%d")
+e_idx = pd.Index(TR_ORIGIN).get_indexer(day)
+s_idx = chk.station.map({s: i for i, s in enumerate(NET)}).to_numpy()
+got = np.array([TR_P[p][e, CTX + h, s] for p, e, h, s in zip(chk.pollutant, e_idx, chk.rel_hour, s_idx)])
+assert (e_idx >= 0).all() and np.allclose(np.expm1(got), chk.value.to_numpy()), "label alignment failed"
+print("train.csv labels match the history tensors on 2000 random rows")
 
 # %% [markdown]
-# ## 2. Training rows: every network station takes a turn as the "unmonitored" target
-# For pseudo-target station s, the network features come from the **other 7** network
-# stations. Including s's own readings would leak its label into its features, a
-# relationship that does not exist at the real target stations.
+# ## 2. Batched feature construction (torch)
+# Each sample is one (episode, target station). Its features are computed on the fly from
+# the episode tensors and a **mask over network stations**:
+# * The target station itself is always masked out (leave-self-out), because the real
+#   target sites have no readings of their own.
+# * Context sequence, 72 hours × 31 features: network mean and spread of each pollutant,
+#   a mask for hours with no network reading, the site's weather, the site's weather
+#   minus the network weather, and hour-of-day as sin/cos.
+# * Target-day sequence, 24 hours × 13 features: site weather, weather offsets and hour
+#   (the weather-forecast proxy).
+# * Static: month and weekday as sin/cos, plus the site's mean pressure offset (an
+#   elevation proxy).
+# * Base level: the network-mean log concentration over the last 24 context hours. The
+#   network predicts a correction on top of it.
 
 # %%
-def build_train():
-    blocks = []
-    for k, s in enumerate(NET):
-        others = [j for j in range(len(NET)) if j != k]
-        oth_all = [ALL.index(NET[j]) for j in others]
-        P = {p: TR_P[p][:, :, others] for p in POL}
-        Wst = {w: TR_W[w][:, :, ALL.index(s)] for w in WXCOLS}
-        Wnet = {w: np.nanmean(TR_W[w][:, :, oth_all], axis=2) for w in WXCOLS}
-        f = episode_features(P, Wst, Wnet, TR_MONTH, TR_WDAY)
-        f["station"] = np.full(len(f["h"]), s)
-        f["origin"] = np.repeat(TR_ORIGIN.to_numpy(), HOR)
-        for p in POL:
-            f[f"y_{p}"] = TR_P[p][:, CTX:, k].ravel()
-        blocks.append(pd.DataFrame(f))
-    return pd.concat(blocks, ignore_index=True)
+NP = np.stack([TR_P[p] for p in POL], axis=-1).astype(np.float32)          # (E,96,8,6)
+NW = np.stack([TR_W[w] for w in WXCOLS], axis=-1).astype(np.float32)       # (E,96,12,7)
+TP = np.stack([TE_P[p] for p in POL], axis=-1).astype(np.float32)
+TW = np.stack([TE_W[w] for w in WXCOLS], axis=-1).astype(np.float32)
+NET_IN_ALL = [ALL.index(s) for s in NET]
+HOURS = np.arange(CTX + HOR) % 24
+HOUR_SC = np.stack([np.sin(2 * np.pi * HOURS / 24), np.cos(2 * np.pi * HOURS / 24)], -1).astype(np.float32)
+OFFSET_W = [WXCOLS.index(w) for w in ("TEMP", "PRES", "DEWP", "WSPM")]
 
-def build_test():
-    net_all = [ALL.index(s) for s in NET]
-    blocks = []
-    for t in TGT:
-        Wst = {w: TE_W[w][:, :, ALL.index(t)] for w in WXCOLS}
-        Wnet = {w: np.nanmean(TE_W[w][:, :, net_all], axis=2) for w in WXCOLS}
-        f = episode_features(TE_P, Wst, Wnet, TE_MONTH, TE_WDAY)
-        h = f["h"]
-        f["key"] = (np.repeat(np.array(FIDS, dtype=object), HOR) + "_" + t + "_h"
-                    + pd.Series(h).map("{:02d}".format).to_numpy())
-        blocks.append(pd.DataFrame(f))
-    return pd.concat(blocks, ignore_index=True)
+def masked_mean_std(x, m):
+    """x: (B,T,K,C) with NaN, m: (B,K) station mask -> mean/std over masked, non-NaN stations."""
+    valid = (~torch.isnan(x)) & m[:, None, :, None]
+    x0 = torch.where(valid, x, torch.zeros_like(x))
+    n = valid.sum(2).clamp(min=1)
+    mean = x0.sum(2) / n
+    var = ((x0 - mean[:, :, None, :]) ** 2 * valid).sum(2) / n
+    has = valid.any(2)
+    return torch.where(has, mean, torch.full_like(mean, float("nan"))), var.sqrt(), has
 
-TRF, TEF = build_train(), build_test()
-COLS = [c for c in TRF.columns if c not in ("station", "origin", "key") and not c.startswith("y_")]
-print("train rows:", TRF.shape, "| test rows:", TEF.shape, "| features:", len(COLS),
-      f"[{time.time() - T0:.0f}s]")
+def make_batch(P, W, months, wdays, ep, site_all, net_mask):
+    """P (E,96,8,6) log pollutants, W (E,96,12,7) weather; ep: episode ids; site_all: index of
+    the target site in ALL; net_mask: (B,8) bool, which network stations may be used."""
+    P = torch.from_numpy(P[ep, :CTX])                      # context only: no look-ahead
+    Wall = torch.from_numpy(W[ep])                         # (B,96,12,7)
+    m = torch.from_numpy(net_mask)
+    mean, std, has = masked_mean_std(P, m)                 # (B,72,6)
+    site = Wall[torch.arange(len(ep)), :, torch.from_numpy(site_all)]        # (B,96,7)
+    wn_valid = (~torch.isnan(Wall[:, :, NET_IN_ALL])) & m[:, None, :, None]
+    wnet = torch.where(wn_valid, Wall[:, :, NET_IN_ALL], torch.zeros(1)).sum(2) / wn_valid.sum(2).clamp(min=1)
+    off = site[..., OFFSET_W] - wnet[..., OFFSET_W]
+    hsc = torch.from_numpy(HOUR_SC)[None].expand(len(ep), -1, -1)
+    xc = torch.cat([mean, std, (~has).float(), site[:, :CTX], off[:, :CTX], hsc[:, :CTX]], -1)
+    xd = torch.cat([site[:, CTX:], off[:, CTX:], hsc[:, CTX:]], -1)
+    mo = torch.from_numpy(months[ep, CTX].astype(np.float32))
+    wd = torch.from_numpy(wdays[ep, CTX].astype(np.float32))
+    xs = torch.stack([torch.sin(2 * np.pi * mo / 12), torch.cos(2 * np.pi * mo / 12),
+                      torch.sin(2 * np.pi * wd / 7), torch.cos(2 * np.pi * wd / 7),
+                      torch.nanmean(off[:, :CTX, 1], 1)], -1)
+    base = torch.nanmean(mean[:, -24:], 1)                 # (B,6) recent network level
+    return xc, xd, xs, base
 
 # %% [markdown]
-# ## 3. Validation that mirrors the test: new stations AND a later time period
-# The test is both spatial (unmonitored stations) and temporal (the year after training).
-# Each fold therefore holds out two network stations and validates them only on the last
-# training year (origins from 2015-03-01), with models trained on the other six stations
-# before that date. Random row splits would leak through autocorrelated neighbouring
-# hours and overlapping episodes.
+# ## 3. Samples, normalisation and validation split
+# Training samples cover every daily origin × each of the 8 network stations. Validation
+# mirrors the test: two held-out stations, evaluated only on the last training year
+# (origins from 2015-03-01), with the model trained on the other six stations before
+# that date.
 
 # %%
+E = len(origins)
+S_EP = np.repeat(np.arange(E), len(NET))
+S_K = np.tile(np.arange(len(NET)), E)
+S_SITE = np.array([ALL.index(NET[k]) for k in S_K])
+S_Y = torch.from_numpy(NP[S_EP, CTX:, S_K, :])                          # (N,24,6) log targets
 VAL_START = np.datetime64("2015-03-01")
-PAIRS = [NET[i::4] for i in range(4)]
-PARAMS = dict(objective="regression", learning_rate=0.05, num_leaves=31, min_data_in_leaf=200,
-              feature_fraction=0.7, bagging_fraction=0.8, bagging_freq=1, lambda_l2=5.0,
-              verbose=-1, num_threads=os.cpu_count(), seed=0)
+LATE = TR_ORIGIN.to_numpy()[S_EP] >= VAL_START
+VAL_STATIONS = [NET.index("Changping"), NET.index("Dongsi")]   # one suburban + one urban site
+is_val_st = np.isin(S_K, VAL_STATIONS)
+TR_IDX = np.where(~is_val_st & ~LATE)[0]
+VA_IDX = np.where(is_val_st & LATE)[0]
 
-def validate(TRF, cols, target_fn=None, params=PARAMS):
-    """Returns out-of-fold predictions (log space) on validation rows and best iterations."""
-    oof = {p: np.full(len(TRF), np.nan) for p in POL}
-    iters = {p: [] for p in POL}
-    late = (TRF.origin >= VAL_START).to_numpy()
-    for p in POL:
-        y = TRF[f"y_{p}"].to_numpy()
-        off = target_fn(TRF, p) if target_fn else 0.0
-        t = y - off
-        ok = ~np.isnan(t)
-        for pair in PAIRS:
-            held = TRF.station.isin(pair).to_numpy()
-            tr, va = ok & ~held & ~late, ok & held & late
-            m = lgb.train(params, lgb.Dataset(TRF.loc[tr, cols], t[tr]), 3000,
-                          valid_sets=[lgb.Dataset(TRF.loc[va, cols], t[va])],
-                          callbacks=[lgb.early_stopping(100, verbose=False)])
-            oof[p][va] = m.predict(TRF.loc[va, cols], num_iteration=m.best_iteration) + (
-                off[va] if target_fn else 0.0)
-            iters[p].append(m.best_iteration)
-    return oof, iters
+def self_mask(ks, drop=0.0, rng=None):
+    m = np.ones((len(ks), len(NET)), dtype=bool)
+    m[np.arange(len(ks)), ks] = False
+    if drop > 0:   # network-dropout augmentation: hide random extra stations
+        extra = rng.random(m.shape) < drop
+        keep_one = m & ~extra
+        ok = keep_one.sum(1) >= 2
+        m[ok] = keep_one[ok]
+    return m
 
-def report(oof, label):
-    errs, per = [], {}
-    for p in POL:
-        y = TRF[f"y_{p}"].to_numpy()
-        m = ~np.isnan(oof[p]) & ~np.isnan(y)
-        e = np.clip(oof[p][m], 0, None) - y[m]
-        per[p] = round(float(np.sqrt(np.mean(e ** 2))), 4)
-        errs.append(e)
-    pooled = float(np.sqrt(np.mean(np.concatenate(errs) ** 2)))
-    print(f"{label}: pooled RMSLE {pooled:.4f} | per pollutant {per}")
-    return pooled
+def stats_from(idx):
+    xc, xd, xs, _ = make_batch(NP, NW, TR_MONTH, TR_WDAY, S_EP[idx], S_SITE[idx], self_mask(S_K[idx]))
+    f = lambda t: (torch.nan_to_num(torch.nanmean(t.reshape(-1, t.shape[-1]), 0)),
+                   torch.nan_to_num(torch.from_numpy(np.nanstd(t.reshape(-1, t.shape[-1]).numpy(), 0)), nan=1.0).clamp(min=1e-3))
+    return f(xc), f(xd), f(xs)
 
-# Baseline on the same validation rows: persistence of the network mean at the last hour.
-late_rows = (TRF.origin >= VAL_START).to_numpy()
-persist = {p: np.where(late_rows, TRF[f"{p}_last"].fillna(TRF[f"{p}_last24"]).to_numpy(), np.nan) for p in POL}
-report(persist, "VAL persistence baseline")
+NORM = stats_from(np.random.default_rng(0).choice(len(S_EP), 3000, replace=False))
 
-oof_d, iters_d = validate(TRF, COLS)
-val_d = report(oof_d, "VAL direct model")
+def normed(xc, xd, xs):
+    (mc, sc), (md, sd), (ms, ss) = NORM
+    z = lambda x, m, s: torch.nan_to_num((x - m) / s)
+    return z(xc, mc, sc), z(xd, md, sd), z(xs, ms, ss)
+print("samples:", len(S_EP), "| train/val (validation split):", len(TR_IDX), len(VA_IDX))
 
 # %% [markdown]
-# ## 3b. A second model family: forecast the *change* from the recent network level
-# The residual model predicts `log1p(y) - network_last24` for the same pollutant, which is
-# then added back. Its target is roughly stationary across the very different pollution
-# regimes (winter haze against clean summer days), and across the temporal shift to the
-# test year. The two families make different errors, so a blend helps. Blend weights are
-# chosen per pollutant on the validation rows only.
+# ## 4. Model, built and trained from scratch
+# A GRU encoder reads the 72 context hours. A GRU decoder, initialised from the encoder
+# state plus a static embedding, reads the 24 target-day weather steps and emits six log
+# concentrations per hour as a correction to the recent network level. The loss is masked
+# MSE in log1p space, which is the competition metric.
 
 # %%
-def resid_offset(F, p):
-    off = F[f"{p}_last24"].to_numpy()
-    return np.where(np.isnan(off), np.nanmean(off), off)
+torch.set_num_threads(os.cpu_count())
 
-oof_r, iters_r = validate(TRF, COLS, target_fn=resid_offset)
-val_r = report(oof_r, "VAL residual model")
+class ForecastNet(nn.Module):
+    def __init__(self, fc, fd, fs, h=96):
+        super().__init__()
+        self.enc = nn.GRU(fc, h, batch_first=True)
+        self.dec = nn.GRU(fd, h, batch_first=True)
+        self.static = nn.Linear(fs, h)
+        self.head = nn.Sequential(nn.Linear(2 * h, h), nn.GELU(), nn.Dropout(0.1), nn.Linear(h, len(POL)))
 
-WEIGHTS, oof_b = {}, {}
-for p in POL:
-    y = TRF[f"y_{p}"].to_numpy()
-    m = ~np.isnan(oof_d[p]) & ~np.isnan(y)
-    grid = np.linspace(0, 1, 11)
-    errs = [np.sqrt(np.mean((np.clip(w * oof_d[p][m] + (1 - w) * oof_r[p][m], 0, None) - y[m]) ** 2))
-            for w in grid]
-    WEIGHTS[p] = float(grid[int(np.argmin(errs))])
-    oof_b[p] = WEIGHTS[p] * oof_d[p] + (1 - WEIGHTS[p]) * oof_r[p]
-print("direct-model weight per pollutant:", WEIGHTS)
-val_b = report(oof_b, "VAL blend")
+    def forward(self, xc, xd, xs, base):
+        _, hN = self.enc(xc)
+        h0 = torch.tanh(hN + self.static(xs)[None])
+        out, _ = self.dec(xd, h0)
+        ctxv = hN[-1][:, None, :].expand(-1, out.shape[1], -1)
+        return torch.nan_to_num(base)[:, None, :] + self.head(torch.cat([out, ctxv], -1))
+
+def masked_mse(pred, y):
+    m = ~torch.isnan(y)
+    return ((pred - torch.nan_to_num(y)) ** 2 * m).sum() / m.sum().clamp(min=1)
+
+def train_model(idx, epochs, seed=0, drop=0.0, val_idx=None, bs=128, lr=2e-3):
+    torch.manual_seed(seed)
+    rng = np.random.default_rng(seed)
+    model = ForecastNet(31, 13, 5)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=lr, total_steps=epochs * int(np.ceil(len(idx) / bs)))
+    hist = []
+    for ep_i in range(epochs):
+        model.train()
+        perm = rng.permutation(idx)
+        for b in range(0, len(perm), bs):
+            j = perm[b:b + bs]
+            xc, xd, xs, base = make_batch(NP, NW, TR_MONTH, TR_WDAY, S_EP[j], S_SITE[j], self_mask(S_K[j], drop, rng))
+            loss = masked_mse(model(*normed(xc, xd, xs), base), S_Y[j])
+            opt.zero_grad(); loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            opt.step(); sched.step()
+        if val_idx is not None:
+            hist.append(evaluate(model, val_idx))
+    return model, hist
+
+@torch.no_grad()
+def predict_train(model, idx, bs=512):
+    model.eval()
+    out = []
+    for b in range(0, len(idx), bs):
+        j = idx[b:b + bs]
+        xc, xd, xs, base = make_batch(NP, NW, TR_MONTH, TR_WDAY, S_EP[j], S_SITE[j], self_mask(S_K[j]))
+        out.append(model(*normed(xc, xd, xs), base))
+    return torch.cat(out)
+
+def evaluate(model, idx):
+    pred = predict_train(model, idx).clamp(min=0)
+    y = S_Y[idx]
+    m = ~torch.isnan(y)
+    return float(torch.sqrt(((pred - torch.nan_to_num(y)) ** 2 * m).sum() / m.sum()))
+
+# Baseline on the same validation samples: hold the recent network level for all 24 hours.
+_, _, _, b = make_batch(NP, NW, TR_MONTH, TR_WDAY, S_EP[VA_IDX], S_SITE[VA_IDX], self_mask(S_K[VA_IDX]))
+y = S_Y[VA_IDX]; m = ~torch.isnan(y)
+persist = torch.nan_to_num(b)[:, None, :].expand_as(y)
+print("VAL baseline (network last-24h level): %.4f" % float(torch.sqrt(((persist - torch.nan_to_num(y)) ** 2 * m).sum() / m.sum())))
+
+EPOCHS = 12
+model, hist = train_model(TR_IDX, EPOCHS, seed=0, val_idx=VA_IDX)
+print("VAL no augmentation, by epoch:", [round(h, 4) for h in hist], f"[{time.time() - T0:.0f}s]")
 
 # %% [markdown]
-# ## 3c. Diagnostics: where does the error come from?
-# Validation error by held-out station and by forecast hour. Suburban and rural sites
-# (Changping, Dingling, Shunyi) carry the largest site offsets: Dingling's NO2 is far below
-# the urban network. Error barely grows with the horizon, because the target-day weather
-# carries most of the next-day signal and the context alone soon goes stale.
+# ## 4b. Network-dropout augmentation
+# At test time every target site sees the full 8-station network, but outages mean the
+# available set changes from hour to hour, and each target sits at a different distance
+# from the stations. Randomly hiding extra network stations during training (each with
+# probability 0.25, always keeping at least 2) teaches the model to aggregate a variable
+# station set. It also stops the model from leaning on one particular station.
 
 # %%
-late = (TRF.origin >= VAL_START).to_numpy()
-rows = []
-for p in POL:
-    y = TRF[f"y_{p}"].to_numpy()
-    m = late & ~np.isnan(oof_b[p]) & ~np.isnan(y)
-    rows.append(pd.DataFrame({"station": TRF.station[m], "h": TRF.h[m], "pollutant": p,
-                              "se": (np.clip(oof_b[p][m], 0, None) - y[m]) ** 2}))
-diag = pd.concat(rows)
-print(diag.pivot_table(index="station", columns="pollutant", values="se", aggfunc="mean")
-      .pipe(np.sqrt).round(3))
-print(diag.groupby(pd.cut(diag.h, [-1, 5, 11, 17, 23]), observed=True).se.mean().pipe(np.sqrt).round(3))
-print(f"[{time.time() - T0:.0f}s]")
+model_aug, hist_aug = train_model(TR_IDX, EPOCHS, seed=0, drop=0.25, val_idx=VA_IDX)
+print("VAL with network dropout, by epoch:", [round(h, 4) for h in hist_aug], f"[{time.time() - T0:.0f}s]")
+USE_DROP = 0.25 if min(hist_aug) < min(hist) else 0.0
+BEST_EPOCHS = int(np.argmin(hist_aug if USE_DROP else hist)) + 1
+print("use dropout:", USE_DROP, "| best epoch count:", BEST_EPOCHS)
 
 # %% [markdown]
-# ## 4. Final models on all training episodes, then predict the test episodes
-# The number of boosting rounds is the mean best iteration from validation, scaled up a
-# little because the final model sees more data.
+# ## 5. Final: an ensemble of 5 seeds trained on all samples
+# Small recurrent models trained on about 9k samples vary noticeably from seed to seed.
+# Averaging five independently initialised models (in log space) reduces that variance.
 
 # %%
-def fit_predict(TRF, TEF, cols, iters, target_fn=None, test_off_fn=None, params=PARAMS):
+SEEDS = [0, 1, 2, 3, 4]
+finals = [train_model(np.arange(len(S_EP)), BEST_EPOCHS, seed=sd, drop=USE_DROP)[0] for sd in SEEDS]
+print(f"trained {len(finals)} final models [{time.time() - T0:.0f}s]")
+
+@torch.no_grad()
+def predict_test(model):
+    model.eval()
     preds = {}
-    for p in POL:
-        y = TRF[f"y_{p}"].to_numpy()
-        off = target_fn(TRF, p) if target_fn else 0.0
-        t = y - off
-        ok = ~np.isnan(t)
-        rounds = int(np.mean(iters[p]) * 1.1) + 1
-        m = lgb.train(params, lgb.Dataset(TRF.loc[ok, cols], t[ok]), rounds)
-        preds[p] = m.predict(TEF[cols]) + (test_off_fn(TEF, p) if test_off_fn else 0.0)
+    for t in TGT:
+        ep = np.arange(len(FIDS))
+        site = np.full(len(ep), ALL.index(t))
+        mask = np.ones((len(ep), len(NET)), dtype=bool)        # all 8 network stations
+        xc, xd, xs, base = make_batch(TP, TW, TE_MONTH, TE_WDAY, ep, site, mask)
+        preds[t] = model(*normed(xc, xd, xs), base).clamp(min=0).numpy()   # (73,24,6)
     return preds
 
-pred_d = fit_predict(TRF, TEF, COLS, iters_d)
-pred_r = fit_predict(TRF, TEF, COLS, iters_r, target_fn=resid_offset, test_off_fn=resid_offset)
-pred_log = {p: WEIGHTS[p] * pred_d[p] + (1 - WEIGHTS[p]) * pred_r[p] for p in POL}
-
-# %% [markdown]
-# ## 5. Write the submission
-# Map the (episode, station, hour) rows onto the long-format test ids, back-transform with
-# expm1 and clip at 0.
-
-# %%
-def write_submission(pred_log):
-    parts = []
-    for p in POL:
-        parts.append(pd.DataFrame({"id": TEF["key"] + "_" + p,
-                                   "value": np.expm1(np.clip(pred_log[p], 0, None))}))
-    allp = pd.concat(parts, ignore_index=True).set_index("id")["value"]
+def write_submission(preds):
+    keys, vals = [], []
+    for t, arr in preds.items():
+        for i, f in enumerate(FIDS):
+            for h in range(HOR):
+                for c, p in enumerate(POL):
+                    keys.append(f"{f}_{t}_h{h:02d}_{p}")
+                    vals.append(arr[i, h, c])
+    allp = pd.Series(np.expm1(np.array(vals)), index=keys)
     sub = pd.DataFrame({"id": test["id"], "value": allp.reindex(test["id"]).to_numpy()})
     assert sub["value"].notna().all() and np.isfinite(sub["value"]).all() and (sub["value"] >= 0).all()
     sub.to_csv(OUT + "submission.csv", index=False)
     print(sub.head())
     print("saved", OUT + "submission.csv", len(sub), "rows", f"total time {time.time() - T0:.0f}s")
 
-write_submission(pred_log)
+runs = [predict_test(m) for m in finals]
+write_submission({t: np.mean([r[t] for r in runs], axis=0) for t in TGT})

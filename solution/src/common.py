@@ -9,7 +9,8 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
+import torch
+import torch.nn as nn
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)  # nanmean of all-NaN slices
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -24,7 +25,8 @@ DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 CTX, HOR = 72, 24  # 72 context hours, 24 forecast hours
 
-train = pd.read_csv(DATA + "train.csv")
+train = pd.read_csv(DATA + "history.csv")      # continuous hourly training period
+labels = pd.read_csv(DATA + "train.csv")      # labelled next-day rows (same layout as test.csv)
 ctx = pd.read_csv(DATA + "test_context.csv")
 test = pd.read_csv(DATA + "test.csv")
 

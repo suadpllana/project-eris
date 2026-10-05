@@ -1,72 +1,46 @@
-# Submission guide: Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
+# Submission guide: From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
 
-This is version 2 of the challenge, rebuilt after the first validation run failed. All paste-in texts use plain bullet lists, because Shipd's text boxes don't accept pasted tables.
+Version 3, built for the **From Scratch** domain. The accepted domains are NLP, Computer Vision, Object Detection, Recommendation, Sequence to Sequence, Prompt Engineering, RAG, Fine-Tuning, From Scratch and LLM Evaluation. Regression and Forecasting are closed.
 
-## What changed, and which failed check each change addresses
+## How each failed check is addressed
 
-- **Prepared Data Integrity: blank answers.** Test rows are now created only where a real measurement exists, so `answers.csv` has no blank cells.
-- **Target Recoverability: no supported target.** There is now a single target column, `value`, in a long format with one row per (episode, site, hour, pollutant).
-- **Evaluator Contract: known answer, baselines, public/private.** The grader now scores the true answers (0.0) and ranks them above the baselines. It also accepts scoring on subsets of rows, which is needed for public/private leaderboards.
-- **Domain Routing: classified as "Regression".** The task is now time-series forecasting: next-day hourly forecasts from 72-hour context windows.
-- **Novelty: incremental.** The reviewer suggested a domain shift. The task now has three shifts together:
-  - cold-start sites with no pollutant history at all;
-  - an unseen later year (temporal shift);
-  - strict no-look-ahead forecasting.
+- **Domain Routing ("Forecasting" closed):** the challenge now has a "Required From-Scratch Setting" section, modelled on how your accepted challenge declared its Fine-Tuning setting. The intended solution is a neural network trained from random initialisation with no pre-trained weights, and all reference notebooks are PyTorch models trained from scratch.
+- **Prepared Data Integrity ("Train and test feature columns must match"):** `train.csv` now has exactly the columns of `test.csv` plus `value`, as labelled next-day forecast rows. The continuous hourly data moved to `history.csv`.
+- **Checks that already passed** stay passing: evaluator contract, target recoverability (0/100), specification and originality. The answers file and the grader are unchanged.
 
-## Step 1. Dataset (no new upload)
+## What to change in the form
 
-Keep the same zip. Optionally, replace the dataset description with `dataset/DATASET_DESCRIPTION.md`, if Shipd still lets you edit it; only its last "Notes" bullet changed. If editing is locked, that's fine: those notes are informational.
-
-## Step 2. Edit the challenge (same draft, new version)
-
-- **Difficulty:** Medium
-- **Compute Tier:** CPU
-- **Challenge Title:** `Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites`
-- **Problem Description:** replace it with all of `challenge/problem_description.md`
-- **Tags:** feature-engineering
-- **Grading Configuration:** **Minimize**, minimum 0, maximum 100
-- **Grading Script:** Custom; replace it with all of `challenge/grade.py`
-- **Pipeline → prepare.py:** replace it with all of `challenge/prepare.py`, then click **Re-run Prepare**
+1. **Challenge Title:** `From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites`
+2. **Problem Description:** replace it with `challenge/problem_description.md`, without the first line, which is the title.
+3. **Grading Script:** keep it. `grade.py` is unchanged.
+4. **Grading Configuration:** keep Minimize, minimum 0, maximum 100.
+5. **Pipeline:** click **New Pipeline Version**, paste the new `challenge/prepare.py`, then click **Run Prepare**.
+6. Click **Run checks**.
 
 **Expected prepared files:**
-- `public/train.csv`: 315,648 rows
+- `public/history.csv`: 315,648 rows
+- `public/train.csv`: 1,221,145 rows
 - `public/test_context.csv`: 84,096 rows
 - `public/test.csv`: 41,491 rows
 - `public/sample_submission.csv`: 41,491 rows
-- `private/answers.csv`: 41,491 rows, with no blank values
+- `private/answers.csv`: 41,491 rows
 
 The sample submission grades at **1.014**.
 
-## Step 3. Run checks
+## Solutions
 
-Click **Run checks** and send me any failure messages and the novelty score.
+All three are PyTorch models trained from scratch on CPU. Each was executed end-to-end in a clean folder and graded with `grade.py`. Training uses fixed seeds, so the scores reproduce exactly.
 
-## Step 4. Solutions
-
-Each notebook was executed end-to-end in a clean folder (`./dataset/public` in, `./working/submission.csv` out) and graded with `grade.py`:
-
-- **solution_v1.ipynb (baseline):** validation 0.616, test **0.6055**, runtime 1.2 min
-- **solution_v2.ipynb (target-day weather, site offsets, network dynamics):** validation 0.580, test **0.5669**, runtime 2.2 min
-- **solution_v3.ipynb (final; direct + residual blend chosen on validation):** validation 0.574, test **0.5657**, runtime 4.7 min
+- **solution_v1.ipynb (feed-forward network on context summaries + target-day weather):** test **0.5784**, runtime 0.4 min
+- **solution_v2.ipynb (GRU encoder–decoder):** test **0.5614**, runtime 1.3 min
+- **solution_v3.ipynb (final: GRU + network-dropout augmentation + 5-seed ensemble):** test **0.5477**, runtime 4.9 min
 
 Baselines on test:
 - network persistence: 0.831
 - climatology: 0.876
 - training median: 1.014
 
-Upload `solution_v3.ipynb` (renamed to `solution.ipynb`) when the platform asks for a reference solution. If you post iterative solutions, submit v1, then v2, then v3.
-
-## Step 5. Answers for likely reviewer questions
-
-- **Why can't solvers just interpolate from the network?** The target day's network readings are hidden; only the 72 hours before midnight are given. Test episodes are separated by an unused day, carry no calendar date, and have ids in hashed rather than chronological order. That makes it impractical to chain episodes to recover a target day.
-- **Why is the target-day weather given?** It stands in for a numerical weather forecast, which real air-quality forecasters always have. Without it the task reduces to persistence.
-- **What is hard for an agent?**
-  - Rebuilding training episodes that match the test structure from continuous data.
-  - Leave-self-out network features, since a target site has no history of its own.
-  - Validation that holds out both sites and a later time.
-  - Using weather dynamics (clean-up fronts, rain) and site offsets.
-  - Long-format submission bookkeeping.
-- **Grader edge cases tested.** These are rejected with clear messages: missing ids, duplicates, missing columns, NaN, inf, negative and non-numeric values. Rows in any order and extra ids are accepted.
+For comparison, a tuned LightGBM pipeline reached 0.5657, so the from-scratch neural approach is genuinely the stronger one here.
 
 ## Important: your responsibility
 

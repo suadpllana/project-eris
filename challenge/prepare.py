@@ -1,5 +1,5 @@
 """
-prepare.py - Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
+prepare.py - From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
 
 Builds the public/private split from the raw UCI "Beijing Multi-Site Air-Quality"
 upload (12 hourly station CSV files, 2013-03-01 00:00 to 2017-02-28 23:00).
@@ -8,7 +8,10 @@ Design
 - 8 "network" stations have pollutant monitors. 4 "target" stations
   (Gucheng, Huairou, Nongzhanguan, Wanliu) are treated as unmonitored: their
   pollutant readings are never published, only their weather.
-- Training period: 2013-03-01 .. 2016-02-29 (continuous hourly data in train.csv).
+- Training period: 2013-03-01 .. 2016-02-29. history.csv holds the continuous
+  hourly data; train.csv holds labelled forecast rows for every daily origin in
+  that period (target = each network station's next-day hourly pollutants), with
+  exactly the same columns as test.csv plus `value`.
 - Test period: 2016-03-01 .. 2017-02-28, released as 73 independent forecast
   episodes. Each episode has a 72-hour context window (network pollutants plus
   weather at all 12 sites) followed by a 24-hour target day. For the target
@@ -90,13 +93,26 @@ def prepare(raw: Path, public: Path, private: Path) -> None:
     df["ts"] = pd.to_datetime(df[TIME_COLS])
     df = df.drop(columns=["No"]).sort_values(["station", "ts"]).reset_index(drop=True)
 
-    # The target stations are unmonitored: their pollutants are never public.
-    is_target = df["station"].isin(TARGET_STATIONS)
+    # ---------------- training period: continuous hourly history ----------------
+    history = df[df["ts"] <= TRAIN_END].copy()
+    history.loc[history["station"].isin(TARGET_STATIONS), POLLUTANTS] = np.nan
+    history = history[["station"] + TIME_COLS + WEATHER + POLLUTANTS]
 
-    # ---------------- training period: continuous hourly data ----------------
-    train = df[df["ts"] <= TRAIN_END].copy()
-    train.loc[train["station"].isin(TARGET_STATIONS), POLLUTANTS] = np.nan
-    train = train[["station"] + TIME_COLS + WEATHER + POLLUTANTS]
+    # ---------------- training labels: one episode per daily origin ----------------
+    # Same row layout as test.csv. forecast_id "T<YYYYMMDD>" names the target day, so
+    # the 72 h context is the 72 hours of history.csv before 00:00 of that day.
+    first_origin = df["ts"].min() + pd.Timedelta(hours=CONTEXT_HOURS)
+    hist_net = df[(df["ts"] >= first_origin) & (df["ts"] <= TRAIN_END)
+                  & df["station"].isin(NETWORK_STATIONS)]
+    lab = hist_net.melt(id_vars=["station", "ts"], value_vars=POLLUTANTS,
+                        var_name="pollutant", value_name="value").dropna(subset=["value"])
+    lab["forecast_id"] = "T" + lab["ts"].dt.strftime("%Y%m%d")
+    lab["rel_hour"] = lab["ts"].dt.hour
+    lab["hour"] = lab["ts"].dt.hour
+    lab.insert(0, "id", lab["forecast_id"] + "_" + lab["station"] + "_h"
+               + lab["rel_hour"].map("{:02d}".format) + "_" + lab["pollutant"])
+    train = lab[["id", "forecast_id", "station", "rel_hour", "hour", "pollutant", "value"]]
+    train = train.sort_values("id").reset_index(drop=True)
 
     # ---------------- test period: independent forecast episodes ----------------
     origins = []
@@ -159,12 +175,13 @@ def prepare(raw: Path, public: Path, private: Path) -> None:
 
     public.mkdir(parents=True, exist_ok=True)
     private.mkdir(parents=True, exist_ok=True)
+    history.to_csv(public / "history.csv", index=False)
     train.to_csv(public / "train.csv", index=False)
     context.to_csv(public / "test_context.csv", index=False)
     targets[["id", "forecast_id", "station", "rel_hour", "hour", "pollutant"]].to_csv(
         public / "test.csv", index=False)
 
-    medians = train[POLLUTANTS].median()
+    medians = history[POLLUTANTS].median()
     sample = pd.DataFrame({"id": targets["id"],
                            "value": targets["pollutant"].map(medians).astype(float)})
     sample.to_csv(public / "sample_submission.csv", index=False)

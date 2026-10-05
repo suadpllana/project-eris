@@ -10,20 +10,21 @@ import nbformat as nbf
 HERE = Path(__file__).parent
 
 HEADERS = {
-    "v1": "# Cold-Start Air-Quality Forecasting: solution v1 (baseline)\n\n"
-          "Cuts the continuous training period into the same 72 h context + 24 h target "
-          "episodes as the test. Every network station takes a turn as a pseudo-unmonitored "
-          "target, with leave-self-out network features. Validation holds out stations and the "
-          "last training year. Model: one LightGBM per pollutant on calendar features, "
-          "target-hour weather and network context levels.",
-    "v2": "# Cold-Start Air-Quality Forecasting: solution v2 (richer features)\n\n"
-          "Builds on v1. It adds target-day weather summaries, weather change against the "
-          "context (clean-up fronts), the site's weather relative to the network (site offsets), "
-          "network trend and diurnal profile, and cross-pollutant signals (Ox, PM2.5/PM10).",
-    "v3": "# Cold-Start Air-Quality Forecasting: solution v3 (final)\n\n"
-          "Same features as v2. It adds a second model family that forecasts the change from the "
-          "recent network level, blends it with the direct model using weights chosen on "
-          "validation only, and reports diagnostics by station and forecast hour.",
+    "v1": "# From-Scratch Neural Forecasting: solution v1 (feed-forward baseline)\n\n"
+          "Cuts the continuous history into the same 72 h context + 24 h target episodes as the "
+          "test. Every network station takes a turn as the pseudo-unmonitored target, with "
+          "leave-self-out network inputs. The model is a small feed-forward network trained from "
+          "scratch in PyTorch on context summaries plus the target-day weather. Validation holds "
+          "out stations and the last training year.",
+    "v2": "# From-Scratch Neural Forecasting: solution v2 (GRU encoder-decoder)\n\n"
+          "Replaces the feed-forward network with a sequence model trained from scratch. A GRU "
+          "encoder reads the full 72-hour context (masked network aggregates, site weather, site "
+          "offsets). A GRU decoder, driven by the target-day weather, emits 24 h × 6 pollutants "
+          "as a correction to the recent network level.",
+    "v3": "# From-Scratch Neural Forecasting: solution v3 (final)\n\n"
+          "Same GRU encoder-decoder as v2. It adds network-dropout augmentation (random extra "
+          "stations hidden during training, kept only if validation improves) and a 5-seed "
+          "ensemble trained on all samples.",
 }
 
 
