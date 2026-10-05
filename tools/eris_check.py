@@ -83,6 +83,8 @@ def main():
             shutil.unpack_archive(str(f), str(raw_in))
         elif f.is_file():
             shutil.copy(f, raw_in)
+        elif f.is_dir():
+            shutil.copytree(f, raw_in / f.name)
     prepare = load_module(prep, "prepare_mod").prepare
 
     # 2. Determinism: two runs must be byte-identical.
@@ -108,7 +110,10 @@ def main():
     sample = pd.read_csv(pub / "sample_submission.csv")
     answers = pd.read_csv(prv / "answers.csv")
     id_col = answers.columns[0]
-    targets = [c for c in answers.columns if c != id_col]
+    # Grader-only columns in answers.csv (for example a hidden domain) are declared in
+    # config.yaml as `answer_meta_columns: a, b` and are not treated as targets.
+    meta = [c.strip() for c in cfg.get("answer_meta_columns", "").split(",") if c.strip()]
+    targets = [c for c in answers.columns if c != id_col and c not in meta]
 
     # 3. Prepared Data Integrity: train columns == test columns + target column(s).
     extra_in_train = [c for c in train.columns if c not in test.columns]
@@ -145,8 +150,9 @@ def main():
         report("PASS", "IDs", f"{len(answers)} ids match across test, sample and answers")
     else:
         report("FAIL", "IDs", "id sets differ between test / sample_submission / answers")
-    if list(sample.columns) != list(answers.columns):
-        report("FAIL", "IDs", f"sample columns {list(sample.columns)} != answers columns {list(answers.columns)}")
+    answer_cols = [c for c in answers.columns if c not in meta]
+    if list(sample.columns) != answer_cols:
+        report("FAIL", "IDs", f"sample columns {list(sample.columns)} != answers columns {answer_cols}")
     if id_col in train.columns and set(train[id_col]) & set(test[id_col]):
         report("FAIL", "Split leakage", "some test ids also appear in train")
     leaked = [t for t in targets if t in test.columns]
