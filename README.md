@@ -11,7 +11,7 @@ A complete Shipd Eris submission package built on the draft dataset **"Beijing M
 | Path | What it is | Where it goes on Shipd |
 |---|---|---|
 | `dataset/raw/PRSA2017_Data_20130301-20170228.zip` | Raw upload (already attached to your draft dataset) | Dataset → Data Files |
-| `dataset/DATASET_DESCRIPTION.md` | Corrected dataset description (adds the missing Features table) | Dataset → Description |
+| `dataset/DATASET_DESCRIPTION.md` | Corrected dataset description (adds the missing Features column list) | Dataset → Description |
 | `challenge/problem_description.md` | Problem statement the agent sees | Challenge → Problem Description |
 | `challenge/prepare.py` | Deterministic public/private split | Challenge → Prepare script |
 | `challenge/grade.py` | MCRMSLE grader with input validation | Challenge → Grading script |

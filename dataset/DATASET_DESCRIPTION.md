@@ -25,26 +25,24 @@ Each station file has a header row and 35,064 data rows (1,461 days × 24 hours)
 
 ## Features
 
-| Column | Type | Description |
-|--------|------|-------------|
-| No | int | Row counter within the file (1–35,064). It is not an identifier across files. |
-| year | int | Year of the observation (2013–2017) |
-| month | int | Month (1–12) |
-| day | int | Day of month (1–31) |
-| hour | int | Hour of day (0–23), Beijing local time |
-| PM2.5 | float | Fine particulate matter concentration, µg/m³ (2.1% missing) |
-| PM10 | float | Coarse particulate matter concentration, µg/m³ (1.5% missing) |
-| SO2 | float | Sulphur dioxide concentration, µg/m³ (2.1% missing) |
-| NO2 | float | Nitrogen dioxide concentration, µg/m³ (2.9% missing) |
-| CO | float | Carbon monoxide concentration, µg/m³ (4.9% missing) |
-| O3 | float | Ozone concentration, µg/m³ (3.2% missing) |
-| TEMP | float | Air temperature, °C (0.09% missing) |
-| PRES | float | Air pressure, hPa (0.09% missing) |
-| DEWP | float | Dew-point temperature, °C (0.10% missing) |
-| RAIN | float | Precipitation, mm (0.09% missing) |
-| wd | categorical | Wind direction on a 16-point compass: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW (0.43% missing) |
-| WSPM | float | Wind speed, m/s (0.08% missing) |
-| station | categorical | Monitoring site name (constant within a file) |
+- No (int): Row counter within the file (1–35,064). It is not an identifier across files.
+- year (int): Year of the observation (2013–2017)
+- month (int): Month (1–12)
+- day (int): Day of month (1–31)
+- hour (int): Hour of day (0–23), Beijing local time
+- PM2.5 (float): Fine particulate matter concentration, µg/m³ (2.1% missing)
+- PM10 (float): Coarse particulate matter concentration, µg/m³ (1.5% missing)
+- SO2 (float): Sulphur dioxide concentration, µg/m³ (2.1% missing)
+- NO2 (float): Nitrogen dioxide concentration, µg/m³ (2.9% missing)
+- CO (float): Carbon monoxide concentration, µg/m³ (4.9% missing)
+- O3 (float): Ozone concentration, µg/m³ (3.2% missing)
+- TEMP (float): Air temperature, °C (0.09% missing)
+- PRES (float): Air pressure, hPa (0.09% missing)
+- DEWP (float): Dew-point temperature, °C (0.10% missing)
+- RAIN (float): Precipitation, mm (0.09% missing)
+- wd (categorical): Wind direction on a 16-point compass: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW (0.43% missing)
+- WSPM (float): Wind speed, m/s (0.08% missing)
+- station (categorical): Monitoring site name (constant within a file)
 
 ## Data Characteristics
 

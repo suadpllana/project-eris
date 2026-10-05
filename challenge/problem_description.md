@@ -45,11 +45,9 @@ def evaluate(answers, submission):
 
 Reference points on the test set:
 
-| Approach | MCRMSLE |
-|---|---|
-| Network-median constant (`sample_submission.csv`) | 1.029 |
-| Month × hour climatology of the network | 0.906 |
-| Hourly mean (in log space) of the 8 network sites | 0.4815 |
+- Network-median constant (`sample_submission.csv`): 1.029
+- Month × hour climatology of the network: 0.906
+- Hourly mean (in log space) of the 8 network sites: 0.4815
 
 ## Dataset
 
@@ -61,18 +59,18 @@ All files are in `public/`. The timestamps form a complete hourly grid from `201
 
 **`sample_submission.csv`**: a correctly formatted submission with one row per test row.
 
-| Column | Type | Description |
-|---|---|---|
-| `id` | string | Row identifier: `<station>_<YYYYMMDDHH>`, e.g. `Gucheng_2013030100` |
-| `station` | string | Monitoring site name |
-| `year`, `month`, `day`, `hour` | int | Timestamp of the hourly observation (hour 0–23) |
-| `TEMP` | float | Air temperature, °C |
-| `PRES` | float | Air pressure, hPa |
-| `DEWP` | float | Dew-point temperature, °C |
-| `RAIN` | float | Precipitation in the hour, mm |
-| `wd` | string | Wind direction, 16-point compass (`N`, `NNE`, …, `NNW`); blank when missing |
-| `WSPM` | float | Wind speed, m/s |
-| `PM2.5`, `PM10`, `SO2`, `NO2`, `CO`, `O3` | float | Pollutant concentrations, µg/m³ (**train only**). Blank when the analyser reported nothing |
+Columns of `train.csv` and `test.csv`:
+
+- `id` (string): Row identifier: `<station>_<YYYYMMDDHH>`, e.g. `Gucheng_2013030100`
+- `station` (string): Monitoring site name
+- `year`, `month`, `day`, `hour` (int): Timestamp of the hourly observation (hour 0–23)
+- `TEMP` (float): Air temperature, °C
+- `PRES` (float): Air pressure, hPa
+- `DEWP` (float): Dew-point temperature, °C
+- `RAIN` (float): Precipitation in the hour, mm
+- `wd` (string): Wind direction, 16-point compass (`N`, `NNE`, …, `NNW`); blank when missing
+- `WSPM` (float): Wind speed, m/s
+- `PM2.5`, `PM10`, `SO2`, `NO2`, `CO`, `O3` (float): Pollutant concentrations, µg/m³ (**train only**). Blank when the analyser reported nothing
 
 Notes:
 - The meteorological readings for each site were matched by the data publisher to the nearest China Meteorological Administration weather station.
@@ -84,15 +82,13 @@ Notes:
 
 Submit a CSV file with exactly these columns:
 
-| Column | Type | Description |
-|---|---|---|
-| `id` | string | Row identifier from `test.csv` |
-| `PM2.5` | float | Predicted PM2.5 concentration, µg/m³ |
-| `PM10` | float | Predicted PM10 concentration, µg/m³ |
-| `SO2` | float | Predicted SO2 concentration, µg/m³ |
-| `NO2` | float | Predicted NO2 concentration, µg/m³ |
-| `CO` | float | Predicted CO concentration, µg/m³ |
-| `O3` | float | Predicted O3 concentration, µg/m³ |
+- `id` (string): Row identifier from `test.csv`
+- `PM2.5` (float): Predicted PM2.5 concentration, µg/m³
+- `PM10` (float): Predicted PM10 concentration, µg/m³
+- `SO2` (float): Predicted SO2 concentration, µg/m³
+- `NO2` (float): Predicted NO2 concentration, µg/m³
+- `CO` (float): Predicted CO concentration, µg/m³
+- `O3` (float): Predicted O3 concentration, µg/m³
 
 **Requirements**
 - Exactly 140,256 rows, one for each `id` in `test.csv` (any order), plus a header row.

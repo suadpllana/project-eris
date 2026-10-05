@@ -6,11 +6,13 @@ Follow the steps in order. Every file named here is in this repository.
 
 ## Step 1. Finish the draft dataset (no new upload needed)
 
+All paste-in texts use plain bullet lists instead of tables, because Shipd's text boxes do not accept pasted tables.
+
 Open your draft **Beijing Multi-Site Air Quality** dataset.
 
 1. **Title:** keep `Beijing Multi-Site Air Quality`.
 2. **Description:** replace it with the contents of `dataset/DATASET_DESCRIPTION.md`. The current draft has three problems:
-   - it has an empty "Features" section (the column table is missing);
+   - it has an empty "Features" section (the column list is missing);
    - it ends with a stray `a`;
    - it says wind direction is not used and does not name the held-out stations. Both are now out of date.
 3. **Data Files:** keep `PRSA2017_Data_20130301-20170228.zip` (7.6 MB). It matches `dataset/raw/` exactly (SHA-256 `d1b9261c…b0b8`).
