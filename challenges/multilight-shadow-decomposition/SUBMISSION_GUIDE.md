@@ -30,8 +30,6 @@ Two existing lines now point to the section:
 - the Restrictions bullet "Use only ./dataset/public/";
 - the leakage-controls bullet about the hidden domain names.
 
-**Novelty:** the 2026-10-08 check scored 6/10. The closest work it named is Innamorati et al. 2017, layered shading decomposition. It suggested foregrounding how the compositional constraint and the worst-domain term reveal failures that standard metrics miss. The "Distinction" section now does that with three concrete failure modes: light swapping, overlap miscalibration and domain collapse. All three are true of the metric.
-
 Nothing else changed: data, `prepare.py`, `grade.py`, metric and grading configuration are all the same.
 
 ## Form changes

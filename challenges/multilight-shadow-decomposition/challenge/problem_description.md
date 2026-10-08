@@ -8,14 +8,6 @@ This benchmark does not retrieve or segment one referred shadow. A cell can rece
 
 Referring shadow detection selects one shadow instance from an image or video, usually from a language expression, and produces a binary mask. Per-light rendering datasets commonly expose isolated light passes or known scene geometry. This benchmark provides only one composite RGB image and coded light identities. It requires blind decomposition into three simultaneous calibrated contribution fields, including fractional multi-light overlap and soft penumbra, plus residual mass. Solvers therefore need mixture separation and per-cell calibration strategies that a binary referred-mask pipeline does not provide.
 
-Shading and illumination decomposition methods, such as layered shading decomposition for photo retouching, split an image into generic shading or transport layers. They do not assign shadow to specific, identified light sources. Here, each output channel is tied to one coded light, and the fields obey a compositional constraint: the three lights plus residual sum to one in every cell.
-
-This design exposes failures that standard metrics hide:
-
-- Light swapping: a prediction with the correct total shadow assigned to the wrong light scores perfectly on a light-agnostic shadow mask. Here it is penalized in both affected channels.
-- Overlap miscalibration: where two shadows overlap, the fractions must split correctly between the lights. Over-claiming one light necessarily under-claims another or the residual.
-- Domain collapse: the worst-domain half of the score exposes a model that works on one unseen rendering style and fails on the other. A pooled average would hide that.
-
 ## Visual Encoding
 
 - Three four-dot codes in the header define output channels 1, 2, and 3 from left to right.
