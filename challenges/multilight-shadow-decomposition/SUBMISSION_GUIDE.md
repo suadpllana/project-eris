@@ -1,4 +1,61 @@
-# Submission guide: revision 2 (submission size)
+# Submission guide: revision 3 (frozen unseen-domain inference)
+
+## Reviewer feedback (2026-10-08)
+
+> the trajectory shows why the domain shift is easier than the framing sounds. raw model gets only 0.2419 public, then agent inspects test and sees basically 2 photometric regimes (147 low-contrast scan / 153 thermal), uses per-image normalization + heavy brightness/contrast/color/blur/noise augmentation, and jumps straight to ~0.62. so a lot of the unseen-domain difficulty can be normalized away rather than requiring a harder change in the underlying decomposition
+>
+> rn that test inspection is not actually cheating because the rules never ban pooled test statistics / test-distribution adaptation. if we really want frozen unseen-domain generalization i'd explicitly ban aggregate test stats, domain clustering, test-set calibration, etc, while still allowing per-image normalization
+
+## Fix
+
+The problem description has a new section, **"Frozen Per-Image Inference (No Test-Set Adaptation)"**. It does exactly what the reviewer asked:
+- **Required:**
+  - The pipeline is built, tuned and selected on training data and the description only, then frozen.
+  - Each test prediction depends only on that one test image, independent of batch and order.
+  - Normalization layers run in inference mode.
+- **Allowed:**
+  - per-image normalization;
+  - per-image test-time augmentation;
+  - training-time augmentation chosen from the training data and the domain descriptions in the text;
+  - grouped validation, including leaving one training style out.
+- **Banned:**
+  - statistics pooled across test images;
+  - clustering or domain identification on test images;
+  - test-set calibration;
+  - test-time adaptation (weight or normalization-statistic updates, entropy minimization, pseudo-labeling, self-training);
+  - using test images for validation or model selection;
+  - inspecting test images to choose preprocessing or augmentation.
+
+Two existing lines now point to the section:
+- the Restrictions bullet "Use only ./dataset/public/";
+- the leakage-controls bullet about the hidden domain names.
+
+**Novelty:** the 2026-10-08 check scored 6/10. The closest work it named is Innamorati et al. 2017, layered shading decomposition. It suggested foregrounding how the compositional constraint and the worst-domain term reveal failures that standard metrics miss. The "Distinction" section now does that with three concrete failure modes: light swapping, overlap miscalibration and domain collapse. All three are true of the metric.
+
+Nothing else changed: data, `prepare.py`, `grade.py`, metric and grading configuration are all the same.
+
+## Form changes
+
+1. **Problem Description:** replace it with `challenge/problem_description.md`. The only differences from revision 2 are the new section and the two pointer bullets.
+2. Everything else stays as in revision 2. If revision 2's pipeline and grader are already in the form, there's no new pipeline version and no Run Prepare.
+3. Click **Run checks**.
+
+## Reference notebook
+
+It must follow the same rules:
+- `model.eval()` for inference;
+- no statistics computed over the test folder;
+- no choices made by looking at test images.
+
+Per-image normalization and per-image test-time augmentation are fine.
+
+## Reply to the reviewer
+
+> Thanks, agreed. The description now has an explicit "Frozen Per-Image Inference (No Test-Set Adaptation)" section. The whole pipeline must be built, tuned and selected on training data only and then frozen. Each test prediction must depend only on that single test image (identical alone, in any batch or order), with normalization layers in inference mode. It explicitly bans pooled test statistics, clustering or domain identification on test images, test-set calibration, test-time adaptation (weight/normalization-statistic updates, entropy minimization, pseudo-labeling, self-training), using test images for validation or model selection, and inspecting test images to choose preprocessing or augmentation. Per-image normalization, per-image TTA and training-time augmentation chosen from the training data and the stated domain descriptions remain allowed, as you suggested.
+
+---
+
+# Revision 2 (submission size)
 
 ## Reviewer feedback
 

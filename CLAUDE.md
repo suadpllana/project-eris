@@ -69,8 +69,12 @@ How to reach 7 or more:
    - add a **worst-group term**, such as mean plus minimum over hidden domains or sites, like the shadow challenge;
    - give the formula, explain it, and implement it exactly.
 4. **Engineered shift:** unseen domains or groups, disjoint source groups (vendor-disjoint, site-disjoint), held-out styles, seasons or extreme events.
-5. **A "Why This Task Is Distinct" section** that names the closest benchmarks or methods and explains what they can't do here.
-6. Novelty is judged on the design, not the wording. Every claim in the distinctiveness section must be true in the data and the metric.
+5. **Make the shift binding.** When the task claims unseen-domain generalization, add a "frozen per-image inference" rule:
+   - **Allow:** per-image normalization and test-time augmentation.
+   - **Ban:** pooled test statistics, test clustering or domain identification, test-set calibration, test-time adaptation or pseudo-labels, and using or inspecting test images for model selection or for choosing augmentations.
+   - **Why:** the shadow challenge was sent back because an agent clustered the test set into two photometric regimes and normalized the shift away.
+6. **A "Why This Task Is Distinct" section** that names the closest benchmarks or methods and explains what they can't do here.
+7. Novelty is judged on the design, not the wording. Every claim in the distinctiveness section must be true in the data and the metric.
 
 ### Difficulty (agent runs)
 - Three AI agents attempt the challenge, then a difficulty check runs. You get **3 evaluation rounds per challenge**. A round only counts if at least 2 agents return valid scores.
@@ -95,6 +99,10 @@ How to reach 7 or more:
 5. Compute baselines (constant, simple heuristic) and quote them in the description.
 6. Build 3 notebooks (baseline → improved → final), executed end-to-end in `./dataset/public` → `./working/submission.csv` and graded. The final one should be competitive with strong agents.
 7. Write `SUBMISSION_GUIDE.md` with field-by-field paste-in instructions, expected row counts and the sample-submission score.
+
+## Git
+- `main` is the integration branch. Open every pull request against `main`, and start new work branches from the latest `main`.
+- Don't rewrite history on pushed branches (no force-push, no `reset` onto another branch). Bring a branch up to date with `git merge --ff-only origin/main` or a merge commit.
 
 ## Shell note
 Don't put `rm -rf` inside `bash -c` strings or scripts launched by them. The harness blocks it. Use fresh timestamped directories instead.
