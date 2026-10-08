@@ -85,6 +85,12 @@ How to reach 7 or more:
 - Rubrics are currently disabled platform-wide. Keep `rubrics.md` anyway (5+ items, mostly REQUIRED or RECOMMENDED, task-specific, approach-neutral).
 - The Eris rules say "no LLM outputs in the submission". Always remind the user to review and own every file.
 
+## Human review lessons (Revision Requested, 2026-10-08)
+- **Anonymise identifying values.** Replace place names, site or station names, vendor names and similar values with opaque ids (salted-hash order, such as `S01`–`S12`). No real names in any public file. `prepare.py` should do this, and a search over the public CSVs should find zero names.
+- **Don't name the data source in the problem description.** No "UCI", "Kaggle", city names, agency names or dataset titles. Say "do not use external data or try to identify the sources" instead. Source attribution belongs only in the dataset description.
+- **No duplicated data ("duplicacy").** A value must not appear in two public files. For example, don't ship a history file with pollutants *and* a `train.csv` with the same labels. Keep labels only in `train.csv` and put features (weather, metadata) in auxiliary files. Also avoid problems that look like duplicates of existing platform problems; differentiate with the metric and output design.
+- **No meta or salesy sections** such as "What makes this a … problem rather than …". Keep the description factual: overview, required setting, evaluation, dataset, submission.
+
 ## Workflow for a new challenge
 1. Choose an **open domain first**, then a dataset that fits it (recent, licence allows commercial use, source URL documented).
 2. Design for novelty of 7 or more using the recipe above. Write the "Why This Task Is Distinct" and "Required <Domain> Setting" sections.

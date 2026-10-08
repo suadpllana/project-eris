@@ -1,17 +1,17 @@
 # %% [markdown]
-# ## 1. Sanity check: `train.csv` labels are the history tensors
-# `train.csv` lists every labelled (day, network station, hour, pollutant) in the same long
-# format as `test.csv`. The tensors cut from `history.csv` hold the same values, so the check
-# below confirms that the episode slicing lines up with the official labels.
+# ## 1. Sanity check: episode tensors line up with `train.csv`
+# `train.csv` lists every measured (day, network site, hour, pollutant) in the same long
+# format as `test.csv`. The check below confirms that the episode slicing of the joined
+# hourly table returns exactly those labels.
 
 # %%
-chk = labels.sample(2000, random_state=0)
+chk = labels[labels.ts >= TR_ORIGIN[0]].sample(2000, random_state=0)   # days with a full 72 h context
 day = pd.to_datetime(chk.forecast_id.str[1:], format="%Y%m%d")
 e_idx = pd.Index(TR_ORIGIN).get_indexer(day)
-s_idx = chk.station.map({s: i for i, s in enumerate(NET)}).to_numpy()
+s_idx = chk.site.map({s: i for i, s in enumerate(NET)}).to_numpy()
 got = np.array([TR_P[p][e, CTX + h, s] for p, e, h, s in zip(chk.pollutant, e_idx, chk.rel_hour, s_idx)])
 assert (e_idx >= 0).all() and np.allclose(np.expm1(got), chk.value.to_numpy()), "label alignment failed"
-print("train.csv labels match the history tensors on 2000 random rows")
+print("train.csv labels match the episode tensors on 2000 random rows")
 
 # %% [markdown]
 # ## 2. Batched feature construction (torch)
@@ -86,7 +86,7 @@ S_SITE = np.array([ALL.index(NET[k]) for k in S_K])
 S_Y = torch.from_numpy(NP[S_EP, CTX:, S_K, :])                          # (N,24,6) log targets
 VAL_START = np.datetime64("2015-03-01")
 LATE = TR_ORIGIN.to_numpy()[S_EP] >= VAL_START
-VAL_STATIONS = [NET.index("Changping"), NET.index("Dongsi")]   # one suburban + one urban site
+VAL_STATIONS = [NET.index("S01"), NET.index("S07")]   # two held-out network sites
 is_val_st = np.isin(S_K, VAL_STATIONS)
 TR_IDX = np.where(~is_val_st & ~LATE)[0]
 VA_IDX = np.where(is_val_st & LATE)[0]

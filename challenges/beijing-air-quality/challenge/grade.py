@@ -1,17 +1,19 @@
 """
-grade.py - Cold-Start Air-Quality Forecasting at Unmonitored Beijing Sites
+grade.py - From-Scratch Neural Forecasting of Air Quality at Unmonitored Sites
 
-Metric: Root Mean Squared Logarithmic Error over all test rows (lower is better)
+Metric (lower is better): site-robust RMSLE
 
-    RMSLE = sqrt( mean_i ( log(1 + p_i) - log(1 + y_i) )^2 )
+    e_i      = log(1 + p_i) - log(1 + y_i)
+    RMSLE_s  = sqrt( mean of e_i^2 over the test rows of target site s )
+    SCORE    = 0.5 * mean_s(RMSLE_s) + 0.5 * max_s(RMSLE_s)
 
-Each row is one (forecast episode, target station, hour, pollutant). The log
-transform makes errors relative, so the six pollutants (CO in the thousands of
-ug/m3, SO2 often in single digits) contribute on a comparable scale.
+Each row is one (forecast episode, target site, hour, pollutant); the site id is
+the second field of the row id (e.g. F001_S07_h07_PM2.5). The worst-site term
+rewards forecasts that transfer to every unmonitored site, not only the easy ones.
 
 The score is computed on the ids present in `answers`. The submission must
-contain every one of those ids exactly once; additional ids that are not in
-`answers` are ignored, which lets the platform score public/private subsets.
+contain every one of those ids exactly once; additional ids are ignored, which
+lets the platform score public/private subsets.
 """
 import numpy as np
 import pandas as pd
@@ -55,5 +57,8 @@ def grade(submission: pd.DataFrame, answers: pd.DataFrame) -> float:
     if not np.isfinite(true).all():
         raise ValueError("Answers contain missing or non-numeric values.")
 
-    rmsle = float(np.sqrt(np.mean((np.log1p(pred) - np.log1p(true)) ** 2)))
-    return min(rmsle, MAX_SCORE)
+    sq = (np.log1p(pred) - np.log1p(true)) ** 2
+    site = merged[ID_COL].str.split("_").str[1].to_numpy()
+    per_site = pd.Series(sq).groupby(site).mean().pipe(np.sqrt)
+    score = 0.5 * float(per_site.mean()) + 0.5 * float(per_site.max())
+    return min(score, MAX_SCORE)

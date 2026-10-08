@@ -1,10 +1,10 @@
-# Project Eris challenge: From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
+# Project Eris challenge: From-Scratch Neural Forecasting of Air Quality at Unmonitored Sites
 
 A complete Shipd Eris submission package built on the draft dataset **"Beijing Multi-Site Air Quality"** (UCI id 501, CC BY 4.0).
 
 **Task (domain: From Scratch).** Train a neural network from random initialisation to produce next-day, hour-by-hour forecasts of 6 pollutants at 4 Beijing sites that never had a pollutant monitor. The forecasts use 72 hours of readings from 8 monitored network sites, plus weather. Training covers 2013-03 to 2016-02. The test is 73 independent forecast episodes from the following year.
 
-**Metric.** RMSLE over 41,491 (episode, site, hour, pollutant) rows; lower is better.
+**Metric.** Site-robust RMSLE (0.5 × mean + 0.5 × worst target site) over 41,491 (episode, site, hour, pollutant) rows; lower is better.
 
 ## Repository layout
 
@@ -21,6 +21,6 @@ A complete Shipd Eris submission package built on the draft dataset **"Beijing M
 
 See `SUBMISSION_GUIDE.md` for the click-by-click steps.
 
-**Status:** submitted and Pending Review (domain From Scratch; agent runs 0.5162 / 0.5043 / 0.5256; novelty 5/10).
+**Status:** revision requested on 2026-10-08 (duplication, remove the "what makes this…" section, no UCI mention, anonymise place names). Revision 2 addresses all four; see SUBMISSION_GUIDE.md. Earlier agent runs: 0.5162 / 0.5043 / 0.5256 (old metric); novelty 5/10.
 
 Run the local checks with `python tools/eris_check.py challenges/beijing-air-quality` from the repo root.

@@ -68,9 +68,9 @@ Each station file has a header row and 35,064 data rows (1,461 days × 24 hours)
 
 - The leakage-sensitive grouping variable is **`station`**. Hourly observations at one site are strongly autocorrelated and share site-specific calibration, so random row-level splits overstate how well a model generalises to a new site.
 - The challenge built on this dataset (`prepare.py`):
-  - drops `No`;
-  - keeps all 5 numeric weather variables, `wd`, and all 6 pollutants;
-  - treats 4 stations (Gucheng, Huairou, Nongzhanguan, Wanliu) as unmonitored: their pollutants are never published, only their weather;
-  - publishes March 2013 to February 2016 as continuous hourly history, plus labelled next-day forecast rows for every day in that period;
+  - replaces every site name with an anonymous id (S01–S12), so no place name appears in the prepared files;
+  - drops `No`; keeps all weather variables, `wd` and all 6 pollutants;
+  - treats 4 sites as unmonitored: only their weather is published;
+  - publishes March 2013 to February 2016 as hourly weather (`weather.csv`) plus every measured network-site pollutant value (`train.csv`), with no value repeated across files;
   - turns March 2016 to February 2017 into independent next-day forecast episodes (72 hours of network context, then a 24-hour target day).
 - These are historical measurements from one metropolitan region, from site-specific instruments. They cannot be used to infer individual exposure or health outcomes.

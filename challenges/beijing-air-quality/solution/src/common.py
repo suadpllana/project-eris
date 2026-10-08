@@ -25,10 +25,19 @@ DIRS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
 CTX, HOR = 72, 24  # 72 context hours, 24 forecast hours
 
-train = pd.read_csv(DATA + "history.csv")      # continuous hourly training period
-labels = pd.read_csv(DATA + "train.csv")      # labelled next-day rows (same layout as test.csv)
+weather = pd.read_csv(DATA + "weather.csv")   # hourly weather, all 12 sites, training period
+labels = pd.read_csv(DATA + "train.csv")      # every network pollutant value (same layout as test.csv)
 ctx = pd.read_csv(DATA + "test_context.csv")
 test = pd.read_csv(DATA + "test.csv")
+
+# One hourly table for the training period: weather joined with the pollutant labels.
+labels["ts"] = pd.to_datetime(labels["forecast_id"].str[1:], format="%Y%m%d") + pd.to_timedelta(labels["hour"], unit="h")
+weather["ts"] = pd.to_datetime(weather[["year", "month", "day", "hour"]])
+poll = labels.pivot_table(index=["site", "ts"], columns="pollutant", values="value").reset_index()
+train = weather.merge(poll, on=["site", "ts"], how="left")
+for p in POL:
+    if p not in train:
+        train[p] = np.nan
 
 # Wind direction is circular: convert (wd, WSPM) to u/v wind components.
 ANG = {d: i * np.pi / 8 for i, d in enumerate(DIRS)}
@@ -37,12 +46,11 @@ for d in (train, ctx):
     d["u"] = -d["WSPM"] * np.sin(a)
     d["v"] = -d["WSPM"] * np.cos(a)
 
-train["ts"] = pd.to_datetime(train[["year", "month", "day", "hour"]])
-NET = sorted(train.loc[train[POL].notna().any(axis=1), "station"].unique())  # monitored
-TGT = sorted(test.station.unique())                                          # unmonitored
-ALL = sorted(train.station.unique())
-print("network stations:", NET)
-print("target stations: ", TGT)
+NET = sorted(train.loc[train[POL].notna().any(axis=1), "site"].unique())  # monitored
+TGT = sorted(test.site.unique())                                          # unmonitored
+ALL = sorted(train.site.unique())
+print("network sites:", NET)
+print("target sites: ", TGT)
 print("train hours:", train.ts.min(), "->", train.ts.max(), "| test episodes:", ctx.forecast_id.nunique())
 
 # %% [markdown]
@@ -58,7 +66,7 @@ print("train hours:", train.ts.min(), "->", train.ts.max(), "| test episodes:", 
 # %%
 TIMES = pd.DatetimeIndex(sorted(train.ts.unique()))
 def wide(col, stations):
-    return train.pivot(index="ts", columns="station", values=col).reindex(TIMES)[stations].to_numpy(float)
+    return train.pivot(index="ts", columns="site", values=col).reindex(TIMES)[stations].to_numpy(float)
 
 origins = np.where((TIMES.hour == 0) & (np.arange(len(TIMES)) >= CTX)
                    & (np.arange(len(TIMES)) + HOR <= len(TIMES)))[0]
@@ -70,7 +78,7 @@ TR_W = {w: wide(w, ALL)[IDX] for w in WXCOLS}                        # (E, 96, 1
 
 FIDS = sorted(ctx.forecast_id.unique())
 def ctx_tensor(col, stations, log=False):
-    w = ctx.pivot_table(index=["forecast_id", "rel_hour"], columns="station", values=col, dropna=False)
+    w = ctx.pivot_table(index=["forecast_id", "rel_hour"], columns="site", values=col, dropna=False)
     w = w.reindex(pd.MultiIndex.from_product([FIDS, range(-CTX, HOR)]))[stations].to_numpy(float)
     w = w.reshape(len(FIDS), CTX + HOR, len(stations))
     return np.log1p(w) if log else w

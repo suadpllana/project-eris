@@ -1,28 +1,24 @@
 """
-prepare.py - From-Scratch Neural Forecasting of Air Quality at Unmonitored Beijing Sites
+prepare.py - From-Scratch Neural Forecasting of Air Quality at Unmonitored Sites
 
-Builds the public/private split from the raw UCI "Beijing Multi-Site Air-Quality"
-upload (12 hourly station CSV files, 2013-03-01 00:00 to 2017-02-28 23:00).
+Builds the public/private split from the raw upload (12 hourly monitoring-site
+CSV files, 2013-03-01 00:00 to 2017-02-28 23:00).
 
 Design
-- 8 "network" stations have pollutant monitors. 4 "target" stations
-  (Gucheng, Huairou, Nongzhanguan, Wanliu) are treated as unmonitored: their
-  pollutant readings are never published, only their weather.
-- Training period: 2013-03-01 .. 2016-02-29. history.csv holds the continuous
-  hourly data; train.csv holds labelled forecast rows for every daily origin in
-  that period (target = each network station's next-day hourly pollutants), with
-  exactly the same columns as test.csv plus `value`.
-- Test period: 2016-03-01 .. 2017-02-28, released as 73 independent forecast
-  episodes. Each episode has a 72-hour context window (network pollutants plus
-  weather at all 12 sites) followed by a 24-hour target day. For the target
-  day only the weather is released (a perfect-forecast proxy for a numerical
-  weather forecast). The task is to forecast the six pollutants at the four
-  target stations for every hour of the target day.
-- Episodes are laid out as [3 context days][1 target day][1 buffer day], so no
-  target hour appears in any context window and consecutive episodes are never
-  adjacent in time. Test rows carry month / weekday / hour but no calendar
-  date, and episode ids are assigned in hashed (non-chronological) order, so
-  episodes cannot be chained to interpolate a target day from later context.
+- Site names are replaced by anonymous ids S01..S12, assigned in salted-hash order,
+  so no place name appears in any prepared file.
+- 8 "network" sites have pollutant monitors. 4 "target" sites are treated as
+  unmonitored: their pollutant readings are never published, only their weather.
+- Training period 2013-03-01 .. 2016-02-29:
+    weather.csv - hourly weather for all 12 sites (no pollutants, so nothing is
+                  duplicated with train.csv).
+    train.csv   - every measured network-site pollutant value, in exactly the
+                  same long layout as test.csv plus `value`.
+- Test period 2016-03-01 .. 2017-02-28, released as 73 independent forecast
+  episodes in test_context.csv: 72 context hours (network pollutants plus weather
+  at all 12 sites) followed by a 24-hour target day with weather only.
+  Episodes are laid out as [3 context days][1 target day][1 unused day], carry
+  no calendar date, and have hashed ids, so they cannot be chained.
 - Only measured target values become test rows, so answers.csv has no gaps.
 
 Determinism: no randomness; ids come from SHA-256 and every file is sorted.
@@ -47,11 +43,12 @@ TEST_START = pd.Timestamp("2016-03-01 00:00")
 TEST_END_DAY = pd.Timestamp("2017-02-28")
 CONTEXT_HOURS = 72
 TARGET_HOURS = 24
-STRIDE_DAYS = 5  # 3 context days + 1 target day + 1 buffer day
+STRIDE_DAYS = 5  # 3 context days + 1 target day + 1 unused day
 
 ROWS_PER_STATION = 35064
 FILE_PATTERN = "PRSA_Data_*_20130301-20170228.csv"
 SALT = "eris-beijing-forecast-v1"
+SITE_SALT = "eris-site-anon-v1"
 
 
 def _load_raw(raw: Path) -> pd.DataFrame:
@@ -70,8 +67,12 @@ def _load_raw(raw: Path) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True).replace({"": np.nan})
 
 
-def _episode_id(origin: pd.Timestamp) -> str:
-    return hashlib.sha256(f"{SALT}|{origin:%Y-%m-%d}".encode()).hexdigest()
+def _hash(salt: str, text: str) -> str:
+    return hashlib.sha256(f"{salt}|{text}".encode()).hexdigest()
+
+
+def _make_id(forecast_id, site, rel_hour, pollutant):
+    return forecast_id + "_" + site + "_h" + rel_hour.map("{:02d}".format) + "_" + pollutant
 
 
 def prepare(raw: Path, public: Path, private: Path) -> None:
@@ -86,32 +87,31 @@ def prepare(raw: Path, public: Path, private: Path) -> None:
     if df.duplicated(["station"] + TIME_COLS).any():
         raise ValueError("Duplicate (station, timestamp) rows in raw data")
 
+    # Anonymise site names: S01..S12 in salted-hash order (mixes network and target sites).
+    site_of = {s: f"S{i + 1:02d}" for i, s in enumerate(sorted(stations, key=lambda s: _hash(SITE_SALT, s)))}
+    target_sites = sorted(site_of[s] for s in TARGET_STATIONS)
+    df["site"] = df["station"].map(site_of)
+
     for col in POLLUTANTS + ["TEMP", "PRES", "DEWP", "RAIN", "WSPM"]:
         df[col] = pd.to_numeric(df[col])
     for col in TIME_COLS:
         df[col] = df[col].astype(int)
     df["ts"] = pd.to_datetime(df[TIME_COLS])
-    df = df.drop(columns=["No"]).sort_values(["station", "ts"]).reset_index(drop=True)
+    df = df.drop(columns=["No", "station"]).sort_values(["site", "ts"]).reset_index(drop=True)
+    is_target = df["site"].isin(target_sites)
 
-    # ---------------- training period: continuous hourly history ----------------
-    history = df[df["ts"] <= TRAIN_END].copy()
-    history.loc[history["station"].isin(TARGET_STATIONS), POLLUTANTS] = np.nan
-    history = history[["station"] + TIME_COLS + WEATHER + POLLUTANTS]
+    # ---------------- training period ----------------
+    hist = df[df["ts"] <= TRAIN_END]
+    weather = hist[["site"] + TIME_COLS + WEATHER]
 
-    # ---------------- training labels: one episode per daily origin ----------------
-    # Same row layout as test.csv. forecast_id "T<YYYYMMDD>" names the target day, so
-    # the 72 h context is the 72 hours of history.csv before 00:00 of that day.
-    first_origin = df["ts"].min() + pd.Timedelta(hours=CONTEXT_HOURS)
-    hist_net = df[(df["ts"] >= first_origin) & (df["ts"] <= TRAIN_END)
-                  & df["station"].isin(NETWORK_STATIONS)]
-    lab = hist_net.melt(id_vars=["station", "ts"], value_vars=POLLUTANTS,
-                        var_name="pollutant", value_name="value").dropna(subset=["value"])
+    lab = hist[~is_target.loc[hist.index]].melt(
+        id_vars=["site", "ts"], value_vars=POLLUTANTS,
+        var_name="pollutant", value_name="value").dropna(subset=["value"])
     lab["forecast_id"] = "T" + lab["ts"].dt.strftime("%Y%m%d")
     lab["rel_hour"] = lab["ts"].dt.hour
     lab["hour"] = lab["ts"].dt.hour
-    lab.insert(0, "id", lab["forecast_id"] + "_" + lab["station"] + "_h"
-               + lab["rel_hour"].map("{:02d}".format) + "_" + lab["pollutant"])
-    train = lab[["id", "forecast_id", "station", "rel_hour", "hour", "pollutant", "value"]]
+    lab.insert(0, "id", _make_id(lab["forecast_id"], lab["site"], lab["rel_hour"], lab["pollutant"]))
+    train = lab[["id", "forecast_id", "site", "rel_hour", "hour", "pollutant", "value"]]
     train = train.sort_values("id").reset_index(drop=True)
 
     # ---------------- test period: independent forecast episodes ----------------
@@ -120,68 +120,58 @@ def prepare(raw: Path, public: Path, private: Path) -> None:
     while start + pd.Timedelta(days=3) <= TEST_END_DAY:
         origins.append(start + pd.Timedelta(hours=CONTEXT_HOURS))  # 00:00 of target day
         start += pd.Timedelta(days=STRIDE_DAYS)
-    order = sorted(origins, key=_episode_id)
+    order = sorted(origins, key=lambda o: _hash(SALT, f"{o:%Y-%m-%d}"))
     fid = {o: f"F{i + 1:03d}" for i, o in enumerate(order)}
 
-    indexed = df.set_index(["station", "ts"]).sort_index()
+    indexed = df.set_index(["site", "ts"]).sort_index()
+    sites = sorted(site_of.values())
     ctx_rows, tgt_rows = [], []
     for origin in origins:
         hours = pd.date_range(origin - pd.Timedelta(hours=CONTEXT_HOURS),
                               origin + pd.Timedelta(hours=TARGET_HOURS - 1), freq="h")
         rel = ((hours - origin) / pd.Timedelta(hours=1)).astype(int)
-        for station in stations:
-            block = indexed.loc[station].reindex(hours)
-            ctx = pd.DataFrame({
-                "forecast_id": fid[origin],
-                "station": station,
-                "rel_hour": rel,
-                "month": hours.month,
-                "weekday": hours.dayofweek,
-                "hour": hours.hour,
-            })
+        for site in sites:
+            block = indexed.loc[site].reindex(hours)
+            ctx = pd.DataFrame({"forecast_id": fid[origin], "site": site, "rel_hour": rel,
+                                "month": hours.month, "weekday": hours.dayofweek, "hour": hours.hour})
             for col in WEATHER:
                 ctx[col] = block[col].to_numpy()
             for col in POLLUTANTS:
                 values = block[col].to_numpy(dtype=float).copy()
-                if station in TARGET_STATIONS:
+                if site in target_sites:
                     values[:] = np.nan  # never observed at unmonitored sites
                 else:
                     values[rel >= 0] = np.nan  # the future is hidden
                 ctx[col] = values
             ctx_rows.append(ctx)
 
-            if station in TARGET_STATIONS:
+            if site in target_sites:
                 target = block.loc[block.index >= origin]
-                trel = ((target.index - origin) / pd.Timedelta(hours=1)).astype(int)
+                trel = pd.Series(((target.index - origin) / pd.Timedelta(hours=1)).astype(int))
                 for col in POLLUTANTS:
-                    t = pd.DataFrame({
-                        "forecast_id": fid[origin],
-                        "station": station,
-                        "rel_hour": trel,
-                        "hour": target.index.hour,
-                        "pollutant": col,
-                        "value": target[col].to_numpy(dtype=float),
-                    })
+                    t = pd.DataFrame({"forecast_id": fid[origin], "site": site, "rel_hour": trel,
+                                      "hour": target.index.hour, "pollutant": col,
+                                      "value": target[col].to_numpy(dtype=float)})
                     tgt_rows.append(t[t["value"].notna()])
 
     context = pd.concat(ctx_rows, ignore_index=True).sort_values(
-        ["forecast_id", "station", "rel_hour"]).reset_index(drop=True)
+        ["forecast_id", "site", "rel_hour"]).reset_index(drop=True)
     targets = pd.concat(tgt_rows, ignore_index=True)
-    targets.insert(0, "id", targets["forecast_id"] + "_" + targets["station"] + "_h"
-                   + targets["rel_hour"].map("{:02d}".format) + "_" + targets["pollutant"])
+    targets.insert(0, "id", _make_id(targets["forecast_id"], targets["site"],
+                                     targets["rel_hour"], targets["pollutant"]))
     targets = targets.sort_values("id").reset_index(drop=True)
     if targets["id"].duplicated().any():
         raise ValueError("Duplicate target ids")
 
     public.mkdir(parents=True, exist_ok=True)
     private.mkdir(parents=True, exist_ok=True)
-    history.to_csv(public / "history.csv", index=False)
+    weather.to_csv(public / "weather.csv", index=False)
     train.to_csv(public / "train.csv", index=False)
     context.to_csv(public / "test_context.csv", index=False)
-    targets[["id", "forecast_id", "station", "rel_hour", "hour", "pollutant"]].to_csv(
+    targets[["id", "forecast_id", "site", "rel_hour", "hour", "pollutant"]].to_csv(
         public / "test.csv", index=False)
 
-    medians = history[POLLUTANTS].median()
+    medians = train.groupby("pollutant")["value"].median()
     sample = pd.DataFrame({"id": targets["id"],
                            "value": targets["pollutant"].map(medians).astype(float)})
     sample.to_csv(public / "sample_submission.csv", index=False)
