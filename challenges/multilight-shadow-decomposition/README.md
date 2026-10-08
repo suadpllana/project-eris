@@ -1,6 +1,6 @@
 # Project Eris challenge: Multi-Light Fractional Shadow Decomposition
 
-Computer Vision, Hard, A10G. Status: **Revision Requested** (reviewer brianaltan, 2026-10-03). Agent runs before the revision were 0.6202 / 0.6050 / 0.6115. Novelty is 6/10.
+Computer Vision, Hard, A10G. Status: **Revision Requested** twice by reviewer brianaltan. On 2026-10-03 it was the submission size; revision 2 fixes it. On 2026-10-08 it was test-set adaptation; revision 3 bans it. See `SUBMISSION_GUIDE.md`. Agent runs before the revision were 0.6202 / 0.6050 / 0.6115. Novelty is 6/10.
 
 **Task.** For each 192×160 RGB scene, predict three light-specific soft shadow-attribution fields plus residual mass. Lights are identified by four-dot codes in the header. Training uses studio and blueprint renderings. The test uses unseen thermal and low-contrast-scan renderings.
 

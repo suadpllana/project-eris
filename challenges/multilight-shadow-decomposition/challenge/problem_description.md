@@ -83,9 +83,35 @@ Rounding to integers out of 255 changes any value by at most 1/255. The same dec
 - Complete scenes remain in one split.
 - Training provides two rendering styles per scene; evaluation provides one rendering of an unseen scene.
 - Evaluation styles never occur in training.
-- Public test files omit targets and domain names.
+- Public test files omit targets and domain names. Recovering the domain split from test images is banned (see below).
 - Marker codes, colors, positions, IDs, filenames, and row order are independent of attribution values.
 - Every image has unique bytes and no scene is reused across splits.
+
+## Frozen Per-Image Inference (No Test-Set Adaptation)
+
+This benchmark measures frozen generalization to unseen rendering domains. Test images are inference inputs only. The rules below are part of the task. A solution that breaks them is invalid, whatever its score.
+
+Required:
+
+- Build, tune, and select the full pipeline using only train.csv, train_targets.csv, train_images/, and this description. That includes weights, preprocessing, augmentation, hyperparameters, thresholds, calibration, and ensemble weights.
+- Freeze the pipeline before test inference. Each test prediction must be a function of that one test image and the frozen pipeline only. It must be identical if the image were processed alone, in any order, or in any batch.
+- Run every normalization layer in inference mode with statistics frozen from training, for example model.eval() in PyTorch.
+
+Allowed:
+
+- Per-image normalization computed from that single image alone, such as per-image mean and standard deviation, contrast stretching, or histogram equalization.
+- Per-image test-time augmentation, such as flips, rotations, or rescaling, averaged within that image.
+- Training-time photometric and geometric augmentation chosen from the training data and the domain descriptions in this text, including brightness, contrast, color, blur, noise, and rotation.
+- Validation on training scenes grouped by scene_id. Leaving one training style out is a useful proxy for the unseen-domain shift.
+
+Banned:
+
+- Statistics pooled over two or more test images: intensity or color means, histograms, PCA, embeddings, or feature statistics.
+- Clustering, grouping, or domain identification across test images, or any attempt to infer the hidden domain split.
+- Test-set calibration: fitting temperatures, thresholds, scale factors, histogram matching, or per-group corrections to test images or test predictions.
+- Test-time adaptation or training on test images. This includes weight updates, normalization-statistic updates, entropy minimization, self-training, pseudo-labeling, distillation, and self-supervised or unsupervised domain adaptation.
+- Using test images for validation, early stopping, model or checkpoint selection, or ensemble weighting.
+- Viewing, plotting, or computing statistics over test images to choose preprocessing, augmentation, or hyperparameters.
 
 ## Evaluation
 
@@ -106,7 +132,7 @@ Write ./working/submission.csv with exactly 300 rows and columns id,attribution_
 ## Restrictions
 
 - Compute tier: A10G.
-- Use only ./dataset/public/.
+- Use only ./dataset/public/. Test images are for frozen per-image inference only, as defined in "Frozen Per-Image Inference".
 - No private targets, raw labels, generator internals, external images, external annotations, hosted APIs, ID shortcuts, filename shortcuts, or metadata shortcuts.
 - Public general-purpose pretrained vision weights already available offline are allowed.
 - Complete training and inference within approximately one hour.
