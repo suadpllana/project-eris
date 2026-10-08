@@ -51,6 +51,8 @@ Rules for getting routed correctly:
   - **score subsets of `answers`** (public/private leaderboard split). Score on the answer ids and ignore extra submission ids.
 - The grader must raise on a missing id, a duplicate id, a missing column, and NaN, inf or negative values.
 - Columns that are 50% or more missing trigger a warning. If that's by design, say so in the description.
+- **The submission file limit is 10 MB.** State it in the description, and pick a format where every possible prediction fits. The shadow challenge was sent back because agents had to prune soft predictions to fit. Bound the worst case (rows × incompressible payload) below 10 MB, and give a tested encoder in the description.
+- Grader-only columns in `answers.csv` (for example a hidden `eval_domain`) go in `config.yaml` as `answer_meta_columns`, so `eris_check.py` doesn't count them as targets.
 - `prepare.py` must be deterministic (no unseeded randomness, sorted output). Use only Kaggle-image libraries. It must accept the raw folder as Shipd provides it, with zips already extracted.
 
 ### Novelty (gate at 5/10 to submit; aim for 7 or more)
