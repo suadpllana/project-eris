@@ -68,13 +68,15 @@ How to reach 7 or more:
    - combine accuracy with **calibration** (Brier, pinball or quantile loss, CRPS);
    - add a **worst-group term**, such as mean plus minimum over hidden domains or sites, like the shadow challenge;
    - give the formula, explain it, and implement it exactly.
+   - **Score the "easy half" oracle before submitting.** Build a predictor that solves only the easy subproblem perfectly and skips the hard one (for example, exact total shadow split evenly across lights) and grade it. If it comes near the agent scores, add a chance-normalized term for the hard part, where an uninformed guess scores 0. The shadow challenge was sent back because that oracle scored 0.621 against agents' 0.63.
 4. **Engineered shift:** unseen domains or groups, disjoint source groups (vendor-disjoint, site-disjoint), held-out styles, seasons or extreme events.
 5. **Make the shift binding.** When the task claims unseen-domain generalization, add a "frozen per-image inference" rule:
    - **Allow:** per-image normalization and test-time augmentation.
    - **Ban:** pooled test statistics, test clustering or domain identification, test-set calibration, test-time adaptation or pseudo-labels, and using or inspecting test images for model selection or for choosing augmentations.
    - **Why:** the shadow challenge was sent back because an agent clustered the test set into two photometric regimes and normalized the shift away.
 6. **A "Why This Task Is Distinct" section** that names the closest benchmarks or methods and explains what they can't do here.
-7. Novelty is judged on the design, not the wording. Every claim in the distinctiveness section must be true in the data and the metric.
+7. **Don't add related-work paragraphs to chase the checker's suggestions.** On the shadow challenge, naming "layered shading decomposition" dropped novelty from 6 to 4. The checker then found an even closer paper (multi-illuminant decomposition). Describe what the task requires; don't name the families of work it resembles. If a score drops after a text change, revert that change first.
+8. Novelty is judged on the design, not the wording. Every claim in the distinctiveness section must be true in the data and the metric.
 
 ### Difficulty (agent runs)
 - Three AI agents attempt the challenge, then a difficulty check runs. You get **3 evaluation rounds per challenge**. A round only counts if at least 2 agents return valid scores.

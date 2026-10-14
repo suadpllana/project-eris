@@ -8,14 +8,6 @@ This benchmark does not retrieve or segment one referred shadow. A cell can rece
 
 Referring shadow detection selects one shadow instance from an image or video, usually from a language expression, and produces a binary mask. Per-light rendering datasets commonly expose isolated light passes or known scene geometry. This benchmark provides only one composite RGB image and coded light identities. It requires blind decomposition into three simultaneous calibrated contribution fields, including fractional multi-light overlap and soft penumbra, plus residual mass. Solvers therefore need mixture separation and per-cell calibration strategies that a binary referred-mask pipeline does not provide.
 
-Shading and illumination decomposition methods, such as layered shading decomposition for photo retouching, split an image into generic shading or transport layers. They do not assign shadow to specific, identified light sources. Here, each output channel is tied to one coded light, and the fields obey a compositional constraint: the three lights plus residual sum to one in every cell.
-
-This design exposes failures that standard metrics hide:
-
-- Light swapping: a prediction with the correct total shadow assigned to the wrong light scores perfectly on a light-agnostic shadow mask. Here it is penalized in both affected channels.
-- Overlap miscalibration: where two shadows overlap, the fractions must split correctly between the lights. Over-claiming one light necessarily under-claims another or the residual.
-- Domain collapse: the worst-domain half of the score exposes a model that works on one unseen rendering style and fails on the other. A pooled average would hide that.
-
 ## Visual Encoding
 
 - Three four-dot codes in the header define output channels 1, 2, and 3 from left to right.
@@ -127,11 +119,27 @@ Decode each payload to the three light fields with values in [0,1] on the 96 by 
 
 - SOFT_DICE = (2 sum(prediction times truth) + epsilon) divided by (sum(prediction squared) + sum(truth squared) + epsilon), with epsilon = 1e-7.
 - L1_SKILL = clip(1 minus sum absolute error divided by (sum of predicted and true attribution mass + epsilon), 0, 1).
-- IMAGE = 0.70 times mean-channel SOFT_DICE plus 0.30 times mean-channel L1_SKILL.
+- LOCATION = 0.70 times mean-channel SOFT_DICE plus 0.30 times mean-channel L1_SKILL.
+- IDENTIFICATION is computed on shadowed cells, the cells whose true total shadow T = t1 + t2 + t3 is at least 13/255:
+  - In each such cell, the true light shares are t_k / T. The predicted shares are p_k / (p1 + p2 + p3), or one third each if the prediction there has no shadow.
+  - SHARE_ERROR = sum over shadowed cells of T times half the sum over k of |predicted share minus true share|.
+  - CHANCE_ERROR = the same sum with every predicted share set to one third.
+  - IDENTIFICATION = clip(1 minus SHARE_ERROR divided by CHANCE_ERROR, -1, 1), or 1 if CHANCE_ERROR is 0.
+- IMAGE = 0.50 times LOCATION plus 0.50 times IDENTIFICATION.
 - DOMAIN = mean IMAGE over one hidden rendering domain.
 - SCORE = 0.50 times mean DOMAIN plus 0.50 times minimum DOMAIN.
 
-Soft Dice receives 70% because correct spatial attribution is primary. Normalized L1 skill receives 30% to reward calibrated penumbra and overlap fractions without granting near-perfect credit to an all-background prediction. An empty light map receives zero skill. Both terms evaluate the same three contribution fields. Equal mean and worst-domain weights prevent one rendering style from hiding failure on another. The score is maximized and bounded from 0 to 1.
+LOCATION measures where shadow is and how much there is in each light's field. Soft Dice receives 70% of it because correct spatial attribution is primary. Normalized L1 skill receives 30% to reward calibrated penumbra and overlap fractions without granting near-perfect credit to an all-background prediction. An empty light map receives zero skill.
+
+IDENTIFICATION measures whether shadow is assigned to the right light, independent of where it is found. It is chance-normalized:
+- A prediction that finds every shadowed cell but splits each one evenly across the three lights scores 0.
+- A prediction with no shadow in those cells also scores 0.
+- Assigning shadow to the wrong light scores below 0, so guessing which shadow belongs to which light earns nothing on average.
+- Each cell is weighted by its true shadow amount, so solid shadow counts more than faint penumbra.
+
+Locating shadow without reading the light codes therefore earns about half of the image score at best.
+
+Equal mean and worst-domain weights prevent one rendering style from hiding failure on another. The final SCORE is clipped to [0, 1] and maximized.
 
 ## Submission
 
