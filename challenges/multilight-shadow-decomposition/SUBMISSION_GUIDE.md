@@ -1,4 +1,56 @@
-# Submission guide: revision 3 (frozen unseen-domain inference)
+# Submission guide: revision 4 (metric must require light identification)
+
+## Reviewer feedback (jacekwladzinski, 2026-10-14)
+
+> The metric rewards predicting where shadows exist, even when the model cannot correctly identify which light produced them. 0.621/1.0 is achievable with perfect total-shadow information but no light-specific identification. And this almost matches the best reported agent score (0.63)
+
+poggerman approved on 2026-10-11.
+
+## Root cause
+
+Soft Dice and L1 are computed per light channel. A prediction that puts the correct total shadow in every cell and splits it evenly across the three lights still overlaps each light's true field substantially. On synthetic look-alike scenes it scored 0.663 under the old metric; the reviewer measured 0.621 on the real data.
+
+## Fix: a chance-normalized identification term (grader + description)
+
+`IMAGE = 0.5 × LOCATION + 0.5 × IDENTIFICATION`
+- **LOCATION** is the old image score: 0.7 × soft Dice + 0.3 × L1 skill.
+- **IDENTIFICATION** works on cells whose true total shadow is at least 13/255.
+  - It compares the predicted split of shadow across the three lights with the true split (total variation), weighted by true shadow amount.
+  - It's normalized against an even three-way split: `1 − error / chance_error`, clipped to [−1, 1].
+  - An even split, or no shadow, scores 0. Assigning shadow to the wrong light scores below 0, so random guessing earns nothing on average.
+- The final SCORE stays `0.5 × mean DOMAIN + 0.5 × min DOMAIN`, clipped to [0, 1].
+
+Measured on synthetic look-alike scenes (old → new):
+- perfect: 1.000 → 1.000
+- light-agnostic even split (the reviewer's case): 0.663 → 0.332 (identification 0.000)
+- lights cyclically swapped: 0.348 → −0.127 before the final clip
+- random light assignment: identification averages −0.06 over all six permutations
+- correct lights, blurred: 0.973 → 0.949
+- all-residual sample: 0 → 0
+
+On the real data, the reviewer's 0.621 predictor would score about 0.5 × 0.621 + 0.5 × 0 ≈ **0.31**.
+
+`tools/eris_check.py` reports 0 FAIL. Data and `prepare.py` are unchanged.
+
+## Form changes
+
+1. **Grading Script:** choose Custom and replace it with `challenge/grade.py`.
+2. **Problem Description:** replace it with `challenge/problem_description.md`. Only the Evaluation section changed.
+3. **Pipeline, dataset, title, difficulty, tags, compute:** no change.
+4. **Grading Configuration:** keep Maximize, minimum 0, maximum 1.
+5. Click **Run checks**.
+
+**Agent rounds:** the form says "Evaluation limit reached". A metric change makes the old agent scores out of date, so you'll need Shipd to allow another evaluation round. Ask them before or together with resubmitting.
+
+**Reference notebook:** re-grade it with the new `grade.py`. Its identification score must be clearly above 0, showing the task is solvable. If it's near 0, the model isn't reading the light codes; fix that before resubmitting.
+
+## Reply to the reviewer
+
+> Thanks, good catch. The image score is now 0.5 × LOCATION + 0.5 × IDENTIFICATION. LOCATION is the previous soft-Dice/L1 score. IDENTIFICATION is computed on truly shadowed cells and compares the predicted split of shadow across the three lights with the true split, weighted by shadow amount and normalized against an even three-way split. An even split or no shadow scores 0, and wrong assignments score below 0, so guessing earns nothing on average. Your perfect-total-shadow, no-identification predictor therefore drops from 0.621 to about 0.31. On our synthetic check, it scored exactly 0 on identification, and swapped or randomly assigned lights score at or below 0. The formula is given in full in the Evaluation section.
+
+---
+
+# Revision 3 (frozen unseen-domain inference)
 
 ## Reviewer feedback (2026-10-08)
 

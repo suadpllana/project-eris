@@ -68,6 +68,7 @@ How to reach 7 or more:
    - combine accuracy with **calibration** (Brier, pinball or quantile loss, CRPS);
    - add a **worst-group term**, such as mean plus minimum over hidden domains or sites, like the shadow challenge;
    - give the formula, explain it, and implement it exactly.
+   - **Score the "easy half" oracle before submitting.** Build a predictor that solves only the easy subproblem perfectly and skips the hard one (for example, exact total shadow split evenly across lights) and grade it. If it comes near the agent scores, add a chance-normalized term for the hard part, where an uninformed guess scores 0. The shadow challenge was sent back because that oracle scored 0.621 against agents' 0.63.
 4. **Engineered shift:** unseen domains or groups, disjoint source groups (vendor-disjoint, site-disjoint), held-out styles, seasons or extreme events.
 5. **Make the shift binding.** When the task claims unseen-domain generalization, add a "frozen per-image inference" rule:
    - **Allow:** per-image normalization and test-time augmentation.

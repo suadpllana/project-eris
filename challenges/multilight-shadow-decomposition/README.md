@@ -1,10 +1,16 @@
 # Project Eris challenge: Multi-Light Fractional Shadow Decomposition
 
-Computer Vision, Hard, A10G. Status: **Revision Requested** twice by reviewer brianaltan. On 2026-10-03 it was the submission size; revision 2 fixes it. On 2026-10-08 it was test-set adaptation; revision 3 bans it. See `SUBMISSION_GUIDE.md`. Agent runs before the revision were 0.6202 / 0.6050 / 0.6115. Novelty is 6/10.
+Computer Vision, Hard, A10G. Status: **Revision Requested**. Reviews so far:
+- **brianaltan, 2026-10-03:** submission size. Fixed in revision 2.
+- **brianaltan, 2026-10-08:** test-set adaptation. Fixed in revision 3.
+- **poggerman, 2026-10-11:** approved.
+- **jacekwladzinski, 2026-10-14:** the metric rewarded light-agnostic shadow location. Fixed in revision 4, which adds an identification term.
+
+See `SUBMISSION_GUIDE.md`. Agent runs before the revision were 0.6202 / 0.6050 / 0.6115. Novelty is 6/10.
 
 **Task.** For each 192×160 RGB scene, predict three light-specific soft shadow-attribution fields plus residual mass. Lights are identified by four-dot codes in the header. Training uses studio and blueprint renderings. The test uses unseen thermal and low-contrast-scan renderings.
 
-**Metric.** Per light channel, 0.7 × soft Dice + 0.3 × normalised L1 skill, averaged per image. Then 0.5 × mean + 0.5 × minimum over the hidden domains. Higher is better, on a scale of 0 to 1.
+**Metric.** Per image, 0.5 × location + 0.5 × light identification. Location is 0.7 × soft Dice + 0.3 × normalised L1 skill per light channel. Identification is a chance-normalised check of how shadow is split between the lights. Then 0.5 × mean + 0.5 × minimum over the hidden domains. Higher is better, on a scale of 0 to 1.
 
 ## Layout
 

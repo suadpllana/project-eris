@@ -9,6 +9,7 @@ from PIL import Image
 WIDTH,HEIGHT=96,80
 PNG_SIGNATURE=b'\x89PNG\r\n\x1a\n'
 MAX_PAYLOAD_CHARS=1_000_000
+SHADOW_THRESHOLD=12.5/255  # cells whose true total shadow is at least 13/255
 
 def decode_payload(value):
     if value is None or (isinstance(value,float) and not math.isfinite(value)) or not str(value).strip():raise ValueError('attribution_png must be a nonempty Base64 PNG')
@@ -36,7 +37,22 @@ def image_score(prediction,truth):
         mass_denominator=np.sum(p)+np.sum(t)+1e-7
         dice.append((2*np.sum(p*t)+1e-7)/dice_denominator)
         l1_skill.append(max(0.0,1.0-np.sum(np.abs(p-t))/mass_denominator))
-    return .7*float(np.mean(dice))+.3*float(np.mean(l1_skill))
+    location=.7*float(np.mean(dice))+.3*float(np.mean(l1_skill))
+    return .5*location+.5*identification_skill(prediction,truth)
+
+def identification_skill(prediction,truth):
+    # Light identification on truly shadowed cells: how the predicted shadow is split across the three lights,
+    # compared with the true split. Chance-normalized: an even three-way split scores 0, wrong assignments score below 0,
+    # so random guessing of which shadow belongs to which light earns nothing on average.
+    true_total=truth.sum(axis=0);cells=true_total>=SHADOW_THRESHOLD
+    if not np.any(cells):return 1.0
+    weight=true_total[cells];true_share=truth[:,cells]/weight
+    predicted=prediction[:,cells];predicted_total=predicted.sum(axis=0)
+    predicted_share=np.where(predicted_total>0,predicted/np.maximum(predicted_total,1e-12),1.0/3.0)
+    error=np.sum(weight*.5*np.abs(predicted_share-true_share).sum(axis=0))
+    chance=np.sum(weight*.5*np.abs(1.0/3.0-true_share).sum(axis=0))
+    if chance<=1e-12:return 1.0
+    return float(np.clip(1.0-error/chance,-1.0,1.0))
 
 def grade(submission:pd.DataFrame,answers:pd.DataFrame)->float:
     if not {'id','attribution_png'}.issubset(submission.columns):raise ValueError('Submission must contain columns id,attribution_png')
